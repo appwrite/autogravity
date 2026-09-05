@@ -6,6 +6,7 @@ import (
 	"image"
 	"image/color"
 	"image/png"
+	"io"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -21,6 +22,18 @@ type fakeAnalyzer struct {
 	delay       time.Duration
 	inFlight    atomic.Int32
 	maxInFlight atomic.Int32
+}
+
+type blockingReader struct {
+	started chan struct{}
+	release chan struct{}
+	once    sync.Once
+}
+
+func (r *blockingReader) Read([]byte) (int, error) {
+	r.once.Do(func() { close(r.started) })
+	<-r.release
+	return 0, io.EOF
 }
 
 func (f *fakeAnalyzer) Infer(input []float32) ([]float32, error) {
@@ -138,6 +151,31 @@ func TestHandleAnalyzeBoundsConcurrentWork(t *testing.T) {
 	if got := analyzer.maxInFlight.Load(); got != maxConcurrentAnalyses {
 		t.Fatalf("maximum concurrent analyses = %d, want %d", got, maxConcurrentAnalyses)
 	}
+}
+
+func TestHandleAnalyzeSlowUploadDoesNotTakeAnalysisSlot(t *testing.T) {
+	app := newApplication(&fakeAnalyzer{})
+	slowBody := &blockingReader{started: make(chan struct{}), release: make(chan struct{})}
+	slowRequest := httptest.NewRequest(http.MethodPost, "/analyze", slowBody)
+	slowRequest.Header.Set("Content-Type", "image/png")
+	slowResponse := httptest.NewRecorder()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		app.handleAnalyze(slowResponse, slowRequest)
+	}()
+	<-slowBody.started
+
+	validRequest := httptest.NewRequest(http.MethodPost, "/analyze", bytes.NewReader(testPNG(t)))
+	validRequest.Header.Set("Content-Type", "image/png")
+	validResponse := httptest.NewRecorder()
+	app.handleAnalyze(validResponse, validRequest)
+	if validResponse.Code != http.StatusOK {
+		t.Fatalf("valid request status = %d, want 200", validResponse.Code)
+	}
+
+	close(slowBody.release)
+	<-done
 }
 
 func testPNG(t *testing.T) []byte {

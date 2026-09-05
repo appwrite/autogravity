@@ -110,13 +110,6 @@ func (app *application) handleAnalyze(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
-	select {
-	case app.analysisSlots <- struct{}{}:
-		defer func() { <-app.analysisSlots }()
-	case <-r.Context().Done():
-		return
-	}
-
 	r.Body = http.MaxBytesReader(w, r.Body, maxRequestBytes)
 	defer r.Body.Close()
 	data, err := readImage(r)
@@ -127,6 +120,12 @@ func (app *application) handleAnalyze(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	select {
+	case app.analysisSlots <- struct{}{}:
+		defer func() { <-app.analysisSlots }()
+	case <-r.Context().Done():
 		return
 	}
 
