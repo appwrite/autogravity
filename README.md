@@ -7,7 +7,7 @@ submitted image.
 
 ## Requirements
 
-- Go 1.24 or newer
+- Go 1.25 or newer
 - The U²-NetP ONNX model (`make model` downloads and verifies it)
 - An ONNX Runtime shared library. Version 1.23.2 is used by the Docker image and
   matches the pinned Go binding.
@@ -115,9 +115,9 @@ Coordinates are in `[0.0, 1.0]`, measured from the oriented image's top-left
 corner. EXIF orientation is applied before analysis. Confidence is the peak
 activation in the model's fused saliency map, clamped to `[0.0, 1.0]`.
 
-Requests are limited to 10 MiB and decoded images to 40 megapixels. The model
-is loaded once at startup and its shared inference session is reused safely
-across requests.
+Requests are limited to 10 MiB and decoded images to 20 megapixels. Analysis is
+admission-controlled to bound decoded-image memory. The model is loaded once at
+startup and its shared inference session is reused safely across requests.
 
 ## Layout
 

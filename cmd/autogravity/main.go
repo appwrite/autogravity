@@ -20,14 +20,18 @@ import (
 	"autogravity/internal/saliency"
 )
 
-const maxRequestBytes = 10 << 20 // 10 MiB, including multipart overhead.
+const (
+	maxRequestBytes       = 10 << 20 // 10 MiB, including multipart overhead.
+	maxConcurrentAnalyses = 1        // Inference is serialized; bound decoded-image memory too.
+)
 
 type analyzer interface {
 	Infer([]float32) ([]float32, error)
 }
 
 type application struct {
-	model analyzer
+	model         analyzer
+	analysisSlots chan struct{}
 }
 
 type analyzeResponse struct {
@@ -61,7 +65,7 @@ func run() error {
 		}
 	}()
 
-	app := &application{model: model}
+	app := newApplication(model)
 	mux := http.NewServeMux()
 	mux.HandleFunc("/analyze", app.handleAnalyze)
 
@@ -104,6 +108,12 @@ func (app *application) handleAnalyze(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		w.Header().Set("Allow", http.MethodPost)
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	select {
+	case app.analysisSlots <- struct{}{}:
+		defer func() { <-app.analysisSlots }()
+	case <-r.Context().Done():
 		return
 	}
 
@@ -152,6 +162,13 @@ func (app *application) handleAnalyze(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, analyzeResponse{Gravity: point, Confidence: confidence})
+}
+
+func newApplication(model analyzer) *application {
+	return &application{
+		model:         model,
+		analysisSlots: make(chan struct{}, maxConcurrentAnalyses),
+	}
 }
 
 func readImage(r *http.Request) ([]byte, error) {

@@ -13,7 +13,7 @@ import (
 	_ "golang.org/x/image/webp"
 )
 
-const MaxPixels = 40_000_000
+const MaxPixels = 20_000_000
 
 var (
 	ErrUnsupportedFormat = errors.New("unsupported image format")
@@ -24,6 +24,9 @@ var (
 func Decode(data []byte) (image.Image, error) {
 	config, format, err := image.DecodeConfig(bytes.NewReader(data))
 	if err != nil {
+		if errors.Is(err, image.ErrFormat) {
+			return nil, fmt.Errorf("%w: unknown image format", ErrUnsupportedFormat)
+		}
 		return nil, fmt.Errorf("decode image header: %w", err)
 	}
 	if format != "jpeg" && format != "png" && format != "webp" {
