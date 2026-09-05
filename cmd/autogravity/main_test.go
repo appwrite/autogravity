@@ -30,6 +30,29 @@ type blockingReader struct {
 	once    sync.Once
 }
 
+type gatedAnalyzer struct {
+	started chan struct{}
+	release chan struct{}
+	once    sync.Once
+}
+
+func (a *gatedAnalyzer) Infer([]float32) ([]float32, error) {
+	a.once.Do(func() { close(a.started) })
+	<-a.release
+	return make([]float32, saliency.InputWidth*saliency.InputHeight), nil
+}
+
+type countingReader struct {
+	reader  *bytes.Reader
+	started *atomic.Int32
+	once    sync.Once
+}
+
+func (r *countingReader) Read(p []byte) (int, error) {
+	r.once.Do(func() { r.started.Add(1) })
+	return r.reader.Read(p)
+}
+
 func (r *blockingReader) Read([]byte) (int, error) {
 	r.once.Do(func() { close(r.started) })
 	<-r.release
@@ -176,6 +199,51 @@ func TestHandleAnalyzeSlowUploadDoesNotTakeAnalysisSlot(t *testing.T) {
 
 	close(slowBody.release)
 	<-done
+}
+
+func TestHandleAnalyzeBoundsBufferedUploads(t *testing.T) {
+	analyzer := &gatedAnalyzer{started: make(chan struct{}), release: make(chan struct{})}
+	app := newApplication(analyzer)
+	data := testPNG(t)
+
+	var wait sync.WaitGroup
+	startRequest := func(body io.Reader) {
+		wait.Add(1)
+		go func() {
+			defer wait.Done()
+			request := httptest.NewRequest(http.MethodPost, "/analyze", body)
+			request.Header.Set("Content-Type", "image/png")
+			response := httptest.NewRecorder()
+			app.handleAnalyze(response, request)
+			if response.Code != http.StatusOK {
+				t.Errorf("status = %d, want 200", response.Code)
+			}
+		}()
+	}
+
+	startRequest(bytes.NewReader(data))
+	<-analyzer.started // The analysis slot is occupied, but its upload slot is free.
+
+	var bodiesStarted atomic.Int32
+	for range maxConcurrentUploads + 1 {
+		startRequest(&countingReader{reader: bytes.NewReader(data), started: &bodiesStarted})
+	}
+	deadline := time.After(time.Second)
+	for bodiesStarted.Load() < maxConcurrentUploads {
+		select {
+		case <-deadline:
+			t.Fatalf("only %d request bodies started", bodiesStarted.Load())
+		default:
+			time.Sleep(time.Millisecond)
+		}
+	}
+	time.Sleep(20 * time.Millisecond)
+	if got := bodiesStarted.Load(); got != maxConcurrentUploads {
+		t.Fatalf("buffered request bodies = %d, want %d", got, maxConcurrentUploads)
+	}
+
+	close(analyzer.release)
+	wait.Wait()
 }
 
 func testPNG(t *testing.T) []byte {

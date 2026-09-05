@@ -22,6 +22,7 @@ import (
 
 const (
 	maxRequestBytes       = 10 << 20 // 10 MiB, including multipart overhead.
+	maxConcurrentUploads  = 4        // Bounds buffered bodies without reserving inference.
 	maxConcurrentAnalyses = 1        // Inference is serialized; bound decoded-image memory too.
 )
 
@@ -31,6 +32,7 @@ type analyzer interface {
 
 type application struct {
 	model         analyzer
+	uploadSlots   chan struct{}
 	analysisSlots chan struct{}
 }
 
@@ -110,6 +112,18 @@ func (app *application) handleAnalyze(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
+	select {
+	case app.uploadSlots <- struct{}{}:
+	case <-r.Context().Done():
+		return
+	}
+	uploadSlotHeld := true
+	defer func() {
+		if uploadSlotHeld {
+			<-app.uploadSlots
+		}
+	}()
+
 	r.Body = http.MaxBytesReader(w, r.Body, maxRequestBytes)
 	defer r.Body.Close()
 	data, err := readImage(r)
@@ -128,6 +142,10 @@ func (app *application) handleAnalyze(w http.ResponseWriter, r *http.Request) {
 	case <-r.Context().Done():
 		return
 	}
+	// Keep the upload slot while waiting for analysis so buffered request bodies
+	// remain bounded. Release it once decoded-image admission is secured.
+	<-app.uploadSlots
+	uploadSlotHeld = false
 
 	img, err := imageutil.Decode(data)
 	if err != nil {
@@ -166,6 +184,7 @@ func (app *application) handleAnalyze(w http.ResponseWriter, r *http.Request) {
 func newApplication(model analyzer) *application {
 	return &application{
 		model:         model,
+		uploadSlots:   make(chan struct{}, maxConcurrentUploads),
 		analysisSlots: make(chan struct{}, maxConcurrentAnalyses),
 	}
 }
