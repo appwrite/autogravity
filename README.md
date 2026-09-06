@@ -1,14 +1,14 @@
 # autogravity
 
 `autogravity` is a small Go HTTP service that finds the main visual subject in
-an image. It runs U²-NetP with ONNX Runtime and returns the saliency-weighted
+an image. It runs U²-Net with ONNX Runtime and returns the saliency-weighted
 centroid as normalized X/Y coordinates. It never crops, stores, or modifies the
 submitted image.
 
 ## Requirements
 
 - Go 1.25 or newer
-- The U²-NetP ONNX model (`make model` downloads and verifies it)
+- The full U²-Net ONNX model, approximately 168 MiB (`make model` downloads and verifies it)
 - An ONNX Runtime shared library. Version 1.23.2 is used by the Docker image and
   matches the pinned Go binding.
 
@@ -34,18 +34,18 @@ The server listens on `:8080`. These environment variables are available:
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `ADDR` | `:8080` | HTTP listen address |
-| `MODEL_PATH` | `models/u2netp.onnx` | U²-NetP model path |
+| `MODEL_PATH` | `models/u2net.onnx` | U²-Net model path |
 | `ONNXRUNTIME_LIB` | required | Full ONNX Runtime shared-library path |
 
 ## Performance
 
-On an Apple M3 Pro, image analysis takes about **120 ms per image** with U²-NetP
+On an Apple M3 Pro, image analysis takes about **290–390 ms per image** with full U²-Net
 and CPU-only ONNX Runtime:
 
 | Input | Dimensions | Time per image |
 | --- | --- | --- |
-| Landscape JPEG | 1280 × 720 | 119.6 ms |
-| Portrait PNG | 720 × 1080 | 123.2 ms |
+| Landscape JPEG | 1280 × 720 | 391.4 ms |
+| Portrait PNG | 720 × 1080 | 291.3 ms |
 
 Measured on September 6, 2026, with macOS 26.5.2 (arm64), 18 GiB RAM, Go 1.25.14,
 and ONNX Runtime 1.23.2. Each result is the median of five sequential benchmark
@@ -59,7 +59,7 @@ your environment.
 
 ## Docker
 
-The image downloads the verified U²-NetP model and the CPU-only ONNX Runtime
+The image downloads the verified U²-Net model and the CPU-only ONNX Runtime
 library during the build. Docker BuildKit supports both `linux/amd64` and
 `linux/arm64`.
 
@@ -135,6 +135,13 @@ upload and analysis admission limits bound buffered-body and decoded-image
 memory without allowing slow uploads to reserve inference capacity. The model
 is loaded once at startup and its shared inference session is reused safely
 across requests.
+
+## Model quality
+
+Full U²-Net fixes the person-in-room fixture previously missed by U²-NetP, but
+still misses two difficult scenes and regresses on the bird-on-wire integration
+check. See the [fixture evaluation](internal/testimages/testdata/README.md) for
+measured outputs and unchanged expected regions.
 
 ## Contributing
 

@@ -14,8 +14,8 @@ FROM golang:1.25-bookworm AS builder
 COPY --from=onnxruntime /onnxruntime.tgz /tmp/onnxruntime.tgz
 RUN mkdir -p /opt/onnxruntime \
     && tar -xzf /tmp/onnxruntime.tgz --strip-components=1 -C /opt/onnxruntime
-ADD --checksum=sha256:309c8469258dda742793dce0ebea8e6dd393174f89934733ecc8b14c76f4ddd8 --chmod=0444 \
-    https://github.com/danielgatis/rembg/releases/download/v0.0.0/u2netp.onnx /opt/models/u2netp.onnx
+ADD --checksum=sha256:8d10d2f3bb75ae3b6d527c77944fc5e7dcd94b29809d47a739a7a728a912b491 --chmod=0444 \
+    https://github.com/danielgatis/rembg/releases/download/v0.0.0/u2net.onnx /opt/models/u2net.onnx
 
 WORKDIR /src
 COPY go.mod go.sum ./
@@ -32,7 +32,7 @@ COPY --chmod=0555 healthcheck.sh /usr/local/bin/healthcheck
 COPY --from=builder /opt/onnxruntime/lib /opt/onnxruntime/lib
 COPY --from=builder /opt/models /opt/models
 ENV ADDR=:8080 \
-    MODEL_PATH=/opt/models/u2netp.onnx \
+    MODEL_PATH=/opt/models/u2net.onnx \
     ONNXRUNTIME_LIB=/opt/onnxruntime/lib/libonnxruntime.so.1.23.2
 USER 65532:65532
 EXPOSE 8080

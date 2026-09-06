@@ -1,6 +1,6 @@
-MODEL_PATH := models/u2netp.onnx
-MODEL_URL := https://github.com/danielgatis/rembg/releases/download/v0.0.0/u2netp.onnx
-MODEL_SHA256 := 309c8469258dda742793dce0ebea8e6dd393174f89934733ecc8b14c76f4ddd8
+MODEL_PATH := models/u2net.onnx
+MODEL_URL := https://github.com/danielgatis/rembg/releases/download/v0.0.0/u2net.onnx
+MODEL_SHA256 := 8d10d2f3bb75ae3b6d527c77944fc5e7dcd94b29809d47a739a7a728a912b491
 
 .PHONY: build run test test-integration evaluate model
 
