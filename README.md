@@ -47,7 +47,9 @@ The default suite uses checked-in photographs in JPEG, PNG, and lossy,
 lossless, and transparent WebP formats. It checks decoding, all eight EXIF
 orientations, normalization, letterbox padding, raw and multipart uploads,
 corrupt images, and recovery after analysis failures. Fixtures and their
-source license live in `internal/testimages/testdata`.
+source licenses live in [the fixture gallery](internal/testimages/testdata/README.md).
+Additional natural photographs cover a dog low in a portrait, two puppies in
+grass, and a small bird on a wire.
 
 To also run the real U²-NetP model through the HTTP handler:
 
@@ -62,6 +64,12 @@ multipart results. The integration suite requires a working runtime and model;
 it fails rather than silently skipping when they are missing. GitHub Actions
 installs the pinned runtime and runs this suite on every pull request and push
 to `main`. Default tests need neither the runtime nor network access.
+
+The gallery also includes three difficult natural scenes with manually annotated
+subject regions. Run `make evaluate` to reproduce the current model's misses on
+a person in a room, a pedestrian with a dog, and a bird above tree foliage. This
+quality evaluation currently fails and is separate from the CI regression gate;
+its expected regions are not adjusted to accept incorrect model predictions.
 
 ### mise
 
