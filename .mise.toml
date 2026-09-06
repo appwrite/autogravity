@@ -17,6 +17,10 @@ run = "go test -race ./..."
 description = "Build the service"
 run = "go build -o autogravity ./cmd/autogravity"
 
+[tasks.test-integration]
+description = "Test real image inference (requires ONNXRUNTIME_LIB)"
+run = "make test-integration"
+
 [tasks.model]
 description = "Download and verify U²-NetP"
 run = "make model"
