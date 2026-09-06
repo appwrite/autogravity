@@ -25,7 +25,7 @@ RUN CGO_ENABLED=1 go build -trimpath -ldflags="-s -w" -o /out/autogravity ./cmd/
 
 FROM debian:bookworm-slim
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends libgomp1 \
+    && apt-get install -y --no-install-recommends curl libgomp1 \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=builder /out/autogravity /usr/local/bin/autogravity
 COPY --from=builder /opt/onnxruntime/lib /opt/onnxruntime/lib
@@ -35,4 +35,6 @@ ENV ADDR=:8080 \
     ONNXRUNTIME_LIB=/opt/onnxruntime/lib/libonnxruntime.so.1.23.2
 USER 65532:65532
 EXPOSE 8080
+HEALTHCHECK --interval=30s --timeout=3s --start-period=15s --retries=3 \
+  CMD curl -f http://127.0.0.1:8080/healthz || exit 1
 ENTRYPOINT ["/usr/local/bin/autogravity"]
