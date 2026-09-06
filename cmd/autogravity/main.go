@@ -41,6 +41,10 @@ type analyzeResponse struct {
 	Confidence float64       `json:"confidence"`
 }
 
+type healthResponse struct {
+	Status string `json:"status"`
+}
+
 type errorResponse struct {
 	Error string `json:"error"`
 }
@@ -70,6 +74,7 @@ func run() error {
 	app := newApplication(model)
 	mux := http.NewServeMux()
 	mux.HandleFunc("/analyze", app.handleAnalyze)
+	mux.HandleFunc("/healthz", app.handleHealthz)
 
 	server := &http.Server{
 		Addr:              addr,
@@ -104,6 +109,19 @@ func run() error {
 		return fmt.Errorf("graceful shutdown: %w", err)
 	}
 	return nil
+}
+
+func (app *application) handleHealthz(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		w.Header().Set("Allow", http.MethodGet)
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	if app.model == nil {
+		writeError(w, http.StatusServiceUnavailable, "model not ready")
+		return
+	}
+	writeJSON(w, http.StatusOK, healthResponse{Status: "ok"})
 }
 
 func (app *application) handleAnalyze(w http.ResponseWriter, r *http.Request) {

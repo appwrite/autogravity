@@ -85,6 +85,18 @@ Published images include build provenance and an SBOM.
 
 ## API
 
+Health check (returns 503 until the model is loaded):
+
+```sh
+curl -sS http://localhost:8080/healthz
+```
+
+```json
+{
+  "status": "ok"
+}
+```
+
 Send a JPEG, PNG, or WebP image as a multipart `image` field:
 
 ```sh

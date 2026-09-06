@@ -246,6 +246,48 @@ func TestHandleAnalyzeBoundsBufferedUploads(t *testing.T) {
 	wait.Wait()
 }
 
+func TestHandleHealthz(t *testing.T) {
+	app := newApplication(&fakeAnalyzer{})
+	request := httptest.NewRequest(http.MethodGet, "/healthz", nil)
+	response := httptest.NewRecorder()
+
+	app.handleHealthz(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body = %s", response.Code, response.Body.String())
+	}
+	if contentType := response.Header().Get("Content-Type"); contentType != "application/json" {
+		t.Fatalf("Content-Type = %q, want %q", contentType, "application/json")
+	}
+	var body healthResponse
+	if err := json.NewDecoder(response.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Status != "ok" {
+		t.Fatalf("status = %q, want %q", body.Status, "ok")
+	}
+}
+
+func TestHandleHealthzErrors(t *testing.T) {
+	t.Run("method not allowed", func(t *testing.T) {
+		request := httptest.NewRequest(http.MethodPost, "/healthz", nil)
+		response := httptest.NewRecorder()
+		newApplication(&fakeAnalyzer{}).handleHealthz(response, request)
+		if response.Code != http.StatusMethodNotAllowed {
+			t.Fatalf("status = %d, want 405; body = %s", response.Code, response.Body.String())
+		}
+	})
+
+	t.Run("model not ready", func(t *testing.T) {
+		request := httptest.NewRequest(http.MethodGet, "/healthz", nil)
+		response := httptest.NewRecorder()
+		newApplication(nil).handleHealthz(response, request)
+		if response.Code != http.StatusServiceUnavailable {
+			t.Fatalf("status = %d, want 503; body = %s", response.Code, response.Body.String())
+		}
+	})
+}
+
 func testPNG(t *testing.T) []byte {
 	t.Helper()
 	img := image.NewRGBA(image.Rect(0, 0, 2, 2))
