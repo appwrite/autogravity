@@ -1,6 +1,7 @@
 package gravity
 
 import (
+	"image"
 	"math"
 	"testing"
 )
@@ -59,6 +60,29 @@ func TestFromSaliency(t *testing.T) {
 func TestFromSaliencyRejectsInvalidDimensions(t *testing.T) {
 	if _, _, err := FromSaliency([]float32{1}, 2, 2); err == nil {
 		t.Fatal("FromSaliency() expected an error")
+	}
+}
+
+func TestFromSaliencyRegionIgnoresPadding(t *testing.T) {
+	mapData := make([]float32, 4*4)
+	mapData[0] = 10      // Padding must not affect the result or confidence.
+	mapData[1*4+3] = 0.5 // Top-right of the image content.
+
+	got, confidence, err := FromSaliencyRegion(mapData, 4, 4, image.Rect(0, 1, 4, 3))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := (Point{X: 1, Y: 0}); got != want {
+		t.Fatalf("FromSaliencyRegion() = %+v, want %+v", got, want)
+	}
+	if confidence != 0.5 {
+		t.Fatalf("confidence = %v, want 0.5", confidence)
+	}
+}
+
+func TestFromSaliencyRegionRejectsInvalidRegion(t *testing.T) {
+	if _, _, err := FromSaliencyRegion(make([]float32, 4), 2, 2, image.Rect(-1, 0, 1, 1)); err == nil {
+		t.Fatal("FromSaliencyRegion() expected an error")
 	}
 }
 

@@ -56,7 +56,7 @@ func BenchmarkAnalyze(b *testing.B) {
 				if err != nil {
 					b.Fatal(err)
 				}
-				input, err := imageutil.Prepare(img, saliency.InputWidth, saliency.InputHeight)
+				input, content, err := imageutil.Prepare(img, saliency.InputWidth, saliency.InputHeight)
 				if err != nil {
 					b.Fatal(err)
 				}
@@ -64,10 +64,11 @@ func BenchmarkAnalyze(b *testing.B) {
 				if err != nil {
 					b.Fatal(err)
 				}
-				benchmarkPoint, benchmarkConfidence, err = gravity.FromSaliency(
+				benchmarkPoint, benchmarkConfidence, err = gravity.FromSaliencyRegion(
 					mapData,
 					saliency.InputWidth,
 					saliency.InputHeight,
+					content,
 				)
 				if err != nil {
 					b.Fatal(err)

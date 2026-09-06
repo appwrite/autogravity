@@ -55,7 +55,7 @@ mise run model    # download and verify U²-NetP
 ```
 
 GitHub Actions runs `mise run ci` and validates the Docker image for both
-`linux/amd64` and `linux/arm64` on every push and pull request.
+`linux/amd64` and `linux/arm64` on pull requests and pushes to `main`.
 
 ### Benchmark
 
@@ -127,8 +127,10 @@ Example response:
 ```
 
 Coordinates are in `[0.0, 1.0]`, measured from the oriented image's top-left
-corner. EXIF orientation is applied before analysis. Confidence is the peak
-activation in the model's fused saliency map, clamped to `[0.0, 1.0]`.
+corner. EXIF orientation is applied before analysis. Images are fitted within
+the model's 320x320 input using neutral padding, without stretching or
+cropping. Padding is excluded from the focal-point calculation. Confidence is
+the peak activation in the model's fused saliency map, clamped to `[0.0, 1.0]`.
 
 Requests are limited to 10 MiB and decoded images to 20 megapixels. Separate
 upload and analysis admission limits bound buffered-body and decoded-image

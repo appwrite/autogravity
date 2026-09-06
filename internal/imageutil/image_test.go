@@ -65,9 +65,12 @@ func TestPrepareProducesNormalizedNCHW(t *testing.T) {
 	img := image.NewRGBA(image.Rect(0, 0, 1, 1))
 	img.SetRGBA(0, 0, color.RGBA{R: 255, G: 128, B: 0, A: 255})
 
-	got, err := Prepare(img, 1, 1)
+	got, content, err := Prepare(img, 1, 1)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if want := image.Rect(0, 0, 1, 1); content != want {
+		t.Fatalf("content rectangle = %v, want %v", content, want)
 	}
 	if len(got) != 3 {
 		t.Fatalf("tensor length = %d, want 3", len(got))
@@ -81,6 +84,45 @@ func TestPrepareProducesNormalizedNCHW(t *testing.T) {
 		if delta := got[i] - want[i]; delta < -0.0001 || delta > 0.0001 {
 			t.Fatalf("tensor[%d] = %f, want %f", i, got[i], want[i])
 		}
+	}
+}
+
+func TestPreparePreservesAspectRatioWithNeutralPadding(t *testing.T) {
+	tests := []struct {
+		name   string
+		source image.Rectangle
+		want   image.Rectangle
+	}{
+		{name: "landscape", source: image.Rect(0, 0, 4, 2), want: image.Rect(0, 1, 4, 3)},
+		{name: "portrait", source: image.Rect(0, 0, 2, 4), want: image.Rect(1, 0, 3, 4)},
+		{name: "square", source: image.Rect(0, 0, 4, 4), want: image.Rect(0, 0, 4, 4)},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tensor, content, err := Prepare(image.NewRGBA(tt.source), 4, 4)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if content != tt.want {
+				t.Fatalf("content rectangle = %v, want %v", content, tt.want)
+			}
+
+			for y := 0; y < 4; y++ {
+				for x := 0; x < 4; x++ {
+					inContent := image.Pt(x, y).In(content)
+					for channel := 0; channel < 3; channel++ {
+						value := tensor[channel*16+y*4+x]
+						if inContent && value == 0 {
+							t.Fatalf("content tensor value at (%d, %d), channel %d is neutral padding", x, y, channel)
+						}
+						if !inContent && value != 0 {
+							t.Fatalf("padding tensor value at (%d, %d), channel %d = %f, want 0", x, y, channel, value)
+						}
+					}
+				}
+			}
+		})
 	}
 }
 

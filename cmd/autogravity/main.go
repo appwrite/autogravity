@@ -160,7 +160,7 @@ func (app *application) handleAnalyze(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	input, err := imageutil.Prepare(img, saliency.InputWidth, saliency.InputHeight)
+	input, content, err := imageutil.Prepare(img, saliency.InputWidth, saliency.InputHeight)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to preprocess image")
 		return
@@ -171,7 +171,12 @@ func (app *application) handleAnalyze(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "image analysis failed")
 		return
 	}
-	point, confidence, err := gravity.FromSaliency(mapData, saliency.InputWidth, saliency.InputHeight)
+	point, confidence, err := gravity.FromSaliencyRegion(
+		mapData,
+		saliency.InputWidth,
+		saliency.InputHeight,
+		content,
+	)
 	if err != nil {
 		slog.Error("focal-point calculation failed", "error", err)
 		writeError(w, http.StatusInternalServerError, "image analysis failed")
