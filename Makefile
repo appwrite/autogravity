@@ -2,7 +2,7 @@ MODEL_PATH := models/u2netp.onnx
 MODEL_URL := https://github.com/danielgatis/rembg/releases/download/v0.0.0/u2netp.onnx
 MODEL_SHA256 := 309c8469258dda742793dce0ebea8e6dd393174f89934733ecc8b14c76f4ddd8
 
-.PHONY: build run test model
+.PHONY: build run test test-integration model
 
 build:
 	go build -o autogravity ./cmd/autogravity
@@ -12,6 +12,9 @@ run: model
 
 test:
 	go test ./...
+
+test-integration: model
+	go test -race -tags=integration ./...
 
 model:
 	@if [ ! -f "$(MODEL_PATH)" ]; then \

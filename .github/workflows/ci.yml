@@ -26,6 +26,17 @@ jobs:
       - name: Test, vet, and build
         run: mise run ci
 
+      - name: Install ONNX Runtime for integration tests
+        run: |
+          curl -fL --retry 3 -o "$RUNNER_TEMP/onnxruntime.tgz" \
+            https://github.com/microsoft/onnxruntime/releases/download/v1.23.2/onnxruntime-linux-x64-1.23.2.tgz
+          echo "1fa4dcaef22f6f7d5cd81b28c2800414350c10116f5fdd46a2160082551c5f9b  $RUNNER_TEMP/onnxruntime.tgz" | sha256sum -c
+          tar -xzf "$RUNNER_TEMP/onnxruntime.tgz" -C "$RUNNER_TEMP"
+          echo "ONNXRUNTIME_LIB=$RUNNER_TEMP/onnxruntime-linux-x64-1.23.2/lib/libonnxruntime.so.1.23.2" >> "$GITHUB_ENV"
+
+      - name: Test real image inference
+        run: mise run test-integration
+
   docker:
     name: Docker build (${{ matrix.arch }})
     strategy:
