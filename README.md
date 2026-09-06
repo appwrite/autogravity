@@ -37,67 +37,25 @@ The server listens on `:8080`. These environment variables are available:
 | `MODEL_PATH` | `models/u2netp.onnx` | U²-NetP model path |
 | `ONNXRUNTIME_LIB` | required | Full ONNX Runtime shared-library path |
 
-Run tests with:
+## Performance
 
-```sh
-make test
-```
+On an Apple M3 Pro, image analysis takes about **120 ms per image** with U²-NetP
+and CPU-only ONNX Runtime:
 
-The default suite uses checked-in photographs in JPEG, PNG, and lossy,
-lossless, and transparent WebP formats. It checks decoding, all eight EXIF
-orientations, normalization, letterbox padding, raw and multipart uploads,
-corrupt images, and recovery after analysis failures. Fixtures and their
-source licenses live in [the fixture gallery](internal/testimages/testdata/README.md).
-Additional natural photographs cover a dog low in a portrait, two puppies in
-grass, and a small bird on a wire.
+| Input | Dimensions | Time per image |
+| --- | --- | --- |
+| Landscape JPEG | 1280 × 720 | 119.6 ms |
+| Portrait PNG | 720 × 1080 | 123.2 ms |
 
-To also run the real U²-NetP model through the HTTP handler:
+Measured on September 6, 2026, with macOS 26.5.2 (arm64), 18 GiB RAM, Go 1.25.14,
+and ONNX Runtime 1.23.2. Each result is the median of five sequential benchmark
+samples using `-benchtime=3s` and the checked-in synthetic images.
 
-```sh
-export ONNXRUNTIME_LIB=/absolute/path/to/libonnxruntime.dylib
-make test-integration
-```
-
-This downloads and verifies the model, then runs race-enabled tests including
-subject-location checks, mirrored-image consistency, and equivalent raw and
-multipart results. The integration suite requires a working runtime and model;
-it fails rather than silently skipping when they are missing. GitHub Actions
-installs the pinned runtime and runs this suite on every pull request and push
-to `main`. Default tests need neither the runtime nor network access.
-
-The gallery also includes three difficult natural scenes with manually annotated
-subject regions. Run `make evaluate` to reproduce the current model's misses on
-a person in a room, a pedestrian with a dog, and a bird above tree foliage. This
-quality evaluation currently fails and is separate from the CI regression gate;
-its expected regions are not adjusted to accept incorrect model predictions.
-
-### mise
-
-If you use [mise](https://mise.jdx.dev/), the repository pins Go and exposes
-the common development tasks:
-
-```sh
-mise install
-mise run ci       # formatting, vet, race-enabled tests, and build
-mise run model    # download and verify U²-NetP
-```
-
-GitHub Actions runs `mise run ci` and validates the Docker image for both
-`linux/amd64` and `linux/arm64` on pull requests and pushes to `main`.
-
-### Benchmark
-
-An end-to-end benchmark uses the included landscape JPEG and portrait PNG. It
-measures image decoding, orientation handling, resize and normalization, ONNX
-inference, and focal-point calculation. Model startup is excluded.
-
-```sh
-export ONNXRUNTIME_LIB=/absolute/path/to/libonnxruntime.dylib
-mise run bench
-```
-
-Use `.so` instead of `.dylib` on Linux. Regenerate the synthetic example
-images with `go generate ./internal/benchmark`.
+Timings include decoding, orientation handling, resizing and normalization to
+320 × 320, inference, and focal-point calculation. They exclude model startup,
+file reads, uploads, and HTTP overhead. Performance varies with hardware and
+input images; see [benchmark instructions](CONTRIBUTING.md#benchmarks) to measure
+your environment.
 
 ## Docker
 
@@ -166,12 +124,7 @@ memory without allowing slow uploads to reserve inference capacity. The model
 is loaded once at startup and its shared inference session is reused safely
 across requests.
 
-## Layout
+## Contributing
 
-```text
-cmd/autogravity/       HTTP server and lifecycle
-internal/imageutil/    decoding, EXIF orientation, resize, normalization
-internal/saliency/     ONNX Runtime model session and inference
-internal/gravity/      saliency-weighted focal-point calculation
-models/                local model location (ONNX files are gitignored)
-```
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, tests, quality
+evaluation, benchmark reproduction, and the project layout.
