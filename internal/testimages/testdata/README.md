@@ -60,16 +60,16 @@ Observed original-image outputs on macOS arm64 with ONNX Runtime 1.23.2:
 Peak activation is the API's current `confidence` value; these examples show it
 is not a calibrated probability that the selected subject is correct.
 
-## User-supplied panda regression
+## Panda regression
 
-`panda-bamboo.jpg` is copied unchanged from the user-supplied attachment
-`_122855907_gettyimages-611847562.jpg`, added 2026-09-06 after a reported failure.
-The filename references Getty Images; no source URL or license was supplied.
-The BSD and Pexels licenses above do not apply to this image.
+`panda-bamboo.jpg` was added after a similar user-supplied image exposed a model
+failure. The original Getty-referenced attachment is not redistributed. This
+replacement is downloaded at 640 pixels wide from Pexels and covered by the
+[Pexels License](https://www.pexels.com/license/).
 
 | Preview | Expected region (x; y) | Purpose |
 | --- | --- | --- |
-| <img src="panda-bamboo.jpg" width="240" alt="Panda sitting on the right eating bamboo against green foliage"> | 0.55–0.80; 0.25–0.75 | Off-center panda versus foliage, rails, and bamboo; center fallback fails |
+| <img src="panda-bamboo.jpg" width="160" alt="Panda sitting among bamboo and logs"> | 0.20–0.80; 0.25–0.85 | [Panda eating bamboo, Ahmet Yüksek](https://www.pexels.com/photo/giant-panda-eating-bamboo-in-natural-habitat-35438771/); panda versus logs and bamboo |
 
 The expected region was chosen visually before inference and covers the panda's
 body rather than just its face. `make test-integration` checks this fixture's
@@ -77,4 +77,4 @@ subject location, confidence, raw/multipart equivalence, and horizontal reflecti
 using the same tolerances as the other regression images.
 
 Full U²-Net with ONNX Runtime 1.23.2 on macOS arm64 passes all of these checks:
-the original-image centroid is (0.6566, 0.5072), with peak activation 1.0000.
+the original-image centroid is (0.5857, 0.6570), with peak activation 1.0000.

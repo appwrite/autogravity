@@ -31,8 +31,8 @@ orientations, normalization, letterbox padding, raw and multipart uploads,
 corrupt images, and recovery after analysis failures. Fixtures and their
 source licenses live in [the fixture gallery](internal/testimages/testdata/README.md).
 Additional natural photographs cover a dog low in a portrait and two puppies in
-grass. A user-supplied panda eating bamboo is also included as a regression for
-a previously reported failure.
+grass. A licensed panda eating bamboo is also included as a regression for a
+previously reported failure with a similar image.
 
 To also run the real U²-Net model through the HTTP handler:
 
