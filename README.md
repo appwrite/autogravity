@@ -82,6 +82,21 @@ docker build -t autogravity .
 docker run --rm -p 8080:8080 autogravity
 ```
 
+### Container releases
+
+Publishing a GitHub Release with a semantic version tag such as `v1.2.3`
+builds and pushes a multi-architecture image to GitHub Container Registry:
+
+```text
+ghcr.io/appwrite/autogravity:1.2.3
+ghcr.io/appwrite/autogravity:1.2
+ghcr.io/appwrite/autogravity:1
+ghcr.io/appwrite/autogravity:latest
+```
+
+Prereleases receive only their full version tag and do not update `latest`.
+Published images include build provenance and an SBOM.
+
 ## API
 
 Send a JPEG, PNG, or WebP image as a multipart `image` field:
