@@ -1,0 +1,31 @@
+[tools]
+go = "1.25.14"
+
+[tasks.fmt]
+description = "Check Go formatting"
+run = "test -z \"$(gofmt -l cmd internal)\""
+
+[tasks.vet]
+description = "Run static analysis"
+run = "go vet ./..."
+
+[tasks.test]
+description = "Run tests with the race detector"
+run = "go test -race ./..."
+
+[tasks.build]
+description = "Build the service"
+run = "go build -o autogravity ./cmd/autogravity"
+
+[tasks.model]
+description = "Download and verify U²-NetP"
+run = "make model"
+
+[tasks.bench]
+description = "Benchmark the end-to-end image analysis pipeline"
+depends = ["model"]
+run = "go test -run '^$' -bench '^BenchmarkAnalyze$' -benchmem ./internal/benchmark"
+
+[tasks.ci]
+description = "Run all CI checks"
+depends = ["fmt", "vet", "test", "build"]
