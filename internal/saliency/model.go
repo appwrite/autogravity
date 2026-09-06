@@ -35,7 +35,7 @@ func New(runtimeLibraryPath, modelPath string) (*Model, error) {
 		return nil, fmt.Errorf("initialize ONNX Runtime: %w", err)
 	}
 
-	// U2-NetP exposes seven side outputs. The first (1959) is the fused,
+	// U2-Net exposes seven side outputs. The first (1959) is the fused,
 	// highest-resolution saliency map and is the only output needed here.
 	session, err := ort.NewDynamicAdvancedSession(
 		modelPath,

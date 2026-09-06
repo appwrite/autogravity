@@ -11,7 +11,7 @@ the common development tasks:
 ```sh
 mise install
 mise run ci       # formatting, vet, race-enabled tests, and build
-mise run model    # download and verify U²-NetP
+mise run model    # download and verify U²-Net
 ```
 
 GitHub Actions runs `mise run ci` and validates the Docker image for both
@@ -30,10 +30,11 @@ lossless, and transparent WebP formats. It checks decoding, all eight EXIF
 orientations, normalization, letterbox padding, raw and multipart uploads,
 corrupt images, and recovery after analysis failures. Fixtures and their
 source licenses live in [the fixture gallery](internal/testimages/testdata/README.md).
-Additional natural photographs cover a dog low in a portrait, two puppies in
-grass, and a small bird on a wire.
+Additional natural photographs cover a dog low in a portrait and two puppies in
+grass. A licensed panda eating bamboo is also included as a regression for a
+previously reported failure with a similar image.
 
-To also run the real U²-NetP model through the HTTP handler:
+To also run the real U²-Net model through the HTTP handler:
 
 ```sh
 export ONNXRUNTIME_LIB=/absolute/path/to/libonnxruntime.dylib
@@ -48,10 +49,11 @@ installs the pinned runtime and runs this suite on every pull request and push
 to `main`. Default tests need neither the runtime nor network access.
 
 The gallery also includes three difficult natural scenes with manually annotated
-subject regions. Run `make evaluate` to reproduce the current model's misses on
-a person in a room, a pedestrian with a dog, and a bird above tree foliage. This
-quality evaluation currently fails and is separate from the CI regression gate;
-its expected regions are not adjusted to accept incorrect model predictions.
+subject regions. Run `make evaluate` to check a person in a room, a pedestrian
+with a dog, and a bird above tree foliage. Full U²-Net passes the person-in-room
+case, but the other two still fail. This quality evaluation is separate from the
+CI regression gate; its expected regions are not adjusted to accept incorrect
+model predictions.
 
 ## Benchmarks
 

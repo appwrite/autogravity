@@ -58,7 +58,7 @@ func main() {
 
 func run() error {
 	addr := envOrDefault("ADDR", ":8080")
-	modelPath := envOrDefault("MODEL_PATH", "models/u2netp.onnx")
+	modelPath := envOrDefault("MODEL_PATH", "models/u2net.onnx")
 	runtimePath := os.Getenv("ONNXRUNTIME_LIB")
 
 	model, err := saliency.New(runtimePath, modelPath)

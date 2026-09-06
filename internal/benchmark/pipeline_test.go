@@ -28,7 +28,7 @@ func BenchmarkAnalyze(b *testing.B) {
 	projectRoot := filepath.Clean(filepath.Join(filepath.Dir(thisFile), "..", ".."))
 	modelPath := os.Getenv("MODEL_PATH")
 	if modelPath == "" {
-		modelPath = filepath.Join(projectRoot, "models", "u2netp.onnx")
+		modelPath = filepath.Join(projectRoot, "models", "u2net.onnx")
 	}
 
 	model, err := saliency.New(runtimeLibrary, modelPath)

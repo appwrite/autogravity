@@ -20,7 +20,7 @@ floating-point snapshots, to tolerate runtime and architecture differences.
 
 ## Natural-scene autogravity cases
 
-These six additional photographs are downloaded at 640 pixels wide from Pexels,
+These five additional photographs are downloaded at 640 pixels wide from Pexels,
 with the original composition preserved (no cropping or subject repositioning).
 They are covered by the [Pexels License](https://www.pexels.com/license/), not the
 Go BSD license above. Retrieved 2026-09-06. Original photo pages are linked below;
@@ -35,28 +35,46 @@ image. With multiple subjects, the centroid can fall between them.
 | --- | --- | --- | --- |
 | <img src="dog-portrait.jpg" width="140" alt="Dog in lower part of portrait"> | [Dog portrait, Pexels 4587991](https://www.pexels.com/photo/4587991/) | 0.25–0.75; 0.58–0.85 | Strong vertical displacement; center fallback fails |
 | <img src="puppies.jpg" width="180" alt="Two puppies sitting in grass"> | [Two puppies, Chevanon Photography](https://www.pexels.com/photo/two-yellow-labrador-retriever-puppies-1108099/) | 0.30–0.70; 0.35–0.75 | Multiple foreground subjects against textured grass |
-| <img src="bird-wire.jpg" width="180" alt="Small bird on diagonal wire"> | [Bird on wire, Matt Richmond](https://www.pexels.com/photo/bird-on-wire-in-black-and-white-17120939/) | 0.44–0.53; 0.44–0.61 | Small subject competing with a strong diagonal line |
-| <img src="person-room.jpg" width="180" alt="Person low in a room with strong architectural lines"> | [Person in room, cottonbro studio](https://www.pexels.com/photo/grayscale-photo-of-a-man-6756350/) | 0.40–0.58; 0.55–0.90 | Person versus architectural background; known miss |
+| <img src="person-room.jpg" width="180" alt="Person low in a room with strong architectural lines"> | [Person in room, cottonbro studio](https://www.pexels.com/photo/grayscale-photo-of-a-man-6756350/) | 0.40–0.58; 0.55–0.90 | Person versus architectural background; passes with full U²-Net |
 | <img src="pedestrian-dog.jpg" width="140" alt="Pedestrian and dog in lower right of shadowed street"> | [Pedestrian and dog, Alexis B](https://www.pexels.com/photo/silhouette-of-a-man-walking-dog-in-urban-shadow-37197025/) | 0.55–0.94; 0.57–0.80 | Off-center subjects, shadows, busy background; known miss |
 | <img src="bird-branch.jpg" width="140" alt="Bird on upper-left branch with foliage below right"> | [Bird on branch, Sena](https://www.pexels.com/photo/bird-perched-on-lone-tree-branch-against-clear-sky-32546254/) | 0.27–0.34; 0.32–0.40 | Small subject versus foliage; known miss |
 
-`make test-integration` checks the first three scenes and the existing format
+`make test-integration` checks the first two scenes and the existing format
 fixtures, including raw/multipart equivalence and horizontally reflected subject
 regions. Reflection consistency allows 7.5% displacement because inference is
 not exactly reflection invariant.
 
 `make evaluate` runs the last three scenes against the same manually specified
-expectations. **It currently exits nonzero** with U²-NetP and ONNX Runtime 1.23.2;
-it is deliberately not part of the passing CI gate. These failures are retained
-for model-quality work, not hidden by widening the expected subject regions.
+expectations. **It currently exits nonzero** with full U²-Net and ONNX Runtime
+1.23.2; the person-in-room case passes, while the other two still fail. These
+failures are retained without widening the expected subject regions.
 
-Observed original-image outputs on macOS arm64:
+Observed original-image outputs on macOS arm64 with ONNX Runtime 1.23.2:
 
-| Scene | Actual x, y | Peak activation | Finding |
-| --- | --- | --- | --- |
-| Person in room | 0.6944, 0.6352 | 0.9051 | Right of person, on room background |
-| Pedestrian and dog | 0.2572, 0.4904 | 0.9999 | Left of subjects, on building/background |
-| Bird on branch | 0.5443, 0.6420 | 0.2455 | Below/right of bird, toward tree foliage |
+| Scene | U²-NetP x, y | Full U²-Net x, y | Full model peak activation | Full model finding |
+| --- | --- | --- | --- | --- |
+| Person in room | 0.6944, 0.6352 | 0.4859, 0.7586 | 1.0000 | Passes original and mirrored subject checks |
+| Pedestrian and dog | 0.2572, 0.4904 | 0.6766, 0.5457 | 0.9808 | Above expected region; reflection checks also fail |
+| Bird on branch | 0.5443, 0.6420 | 0.4112, 0.3939 | 0.9981 | Right of bird; reflected region also fails |
 
 Peak activation is the API's current `confidence` value; these examples show it
 is not a calibrated probability that the selected subject is correct.
+
+## Panda regression
+
+`panda-bamboo.jpg` was added after a similar user-supplied image exposed a model
+failure. The original Getty-referenced attachment is not redistributed. This
+replacement is downloaded at 640 pixels wide from Pexels and covered by the
+[Pexels License](https://www.pexels.com/license/).
+
+| Preview | Expected region (x; y) | Purpose |
+| --- | --- | --- |
+| <img src="panda-bamboo.jpg" width="160" alt="Panda sitting among bamboo and logs"> | 0.20–0.80; 0.25–0.85 | [Panda eating bamboo, Ahmet Yüksek](https://www.pexels.com/photo/giant-panda-eating-bamboo-in-natural-habitat-35438771/); panda versus logs and bamboo |
+
+The expected region was chosen visually before inference and covers the panda's
+body rather than just its face. `make test-integration` checks this fixture's
+subject location, confidence, raw/multipart equivalence, and horizontal reflection
+using the same tolerances as the other regression images.
+
+Full U²-Net with ONNX Runtime 1.23.2 on macOS arm64 passes all of these checks:
+the original-image centroid is (0.5857, 0.6570), with peak activation 1.0000.
