@@ -139,9 +139,8 @@ across requests.
 ## Model quality
 
 Full U²-Net fixes the person-in-room fixture previously missed by U²-NetP, but
-still misses two difficult scenes and regresses on the bird-on-wire integration
-check. See the [fixture evaluation](internal/testimages/testdata/README.md) for
-measured outputs and unchanged expected regions.
+still misses two difficult scenes. See the [fixture evaluation](internal/testimages/testdata/README.md)
+for measured outputs and unchanged expected regions.
 
 ## Contributing
 

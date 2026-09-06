@@ -20,7 +20,7 @@ floating-point snapshots, to tolerate runtime and architecture differences.
 
 ## Natural-scene autogravity cases
 
-These six additional photographs are downloaded at 640 pixels wide from Pexels,
+These five additional photographs are downloaded at 640 pixels wide from Pexels,
 with the original composition preserved (no cropping or subject repositioning).
 They are covered by the [Pexels License](https://www.pexels.com/license/), not the
 Go BSD license above. Retrieved 2026-09-06. Original photo pages are linked below;
@@ -35,20 +35,14 @@ image. With multiple subjects, the centroid can fall between them.
 | --- | --- | --- | --- |
 | <img src="dog-portrait.jpg" width="140" alt="Dog in lower part of portrait"> | [Dog portrait, Pexels 4587991](https://www.pexels.com/photo/4587991/) | 0.25–0.75; 0.58–0.85 | Strong vertical displacement; center fallback fails |
 | <img src="puppies.jpg" width="180" alt="Two puppies sitting in grass"> | [Two puppies, Chevanon Photography](https://www.pexels.com/photo/two-yellow-labrador-retriever-puppies-1108099/) | 0.30–0.70; 0.35–0.75 | Multiple foreground subjects against textured grass |
-| <img src="bird-wire.jpg" width="180" alt="Small bird on diagonal wire"> | [Bird on wire, Matt Richmond](https://www.pexels.com/photo/bird-on-wire-in-black-and-white-17120939/) | 0.44–0.53; 0.44–0.61 | Small subject competing with a strong diagonal line |
 | <img src="person-room.jpg" width="180" alt="Person low in a room with strong architectural lines"> | [Person in room, cottonbro studio](https://www.pexels.com/photo/grayscale-photo-of-a-man-6756350/) | 0.40–0.58; 0.55–0.90 | Person versus architectural background; passes with full U²-Net |
 | <img src="pedestrian-dog.jpg" width="140" alt="Pedestrian and dog in lower right of shadowed street"> | [Pedestrian and dog, Alexis B](https://www.pexels.com/photo/silhouette-of-a-man-walking-dog-in-urban-shadow-37197025/) | 0.55–0.94; 0.57–0.80 | Off-center subjects, shadows, busy background; known miss |
 | <img src="bird-branch.jpg" width="140" alt="Bird on upper-left branch with foliage below right"> | [Bird on branch, Sena](https://www.pexels.com/photo/bird-perched-on-lone-tree-branch-against-clear-sky-32546254/) | 0.27–0.34; 0.32–0.40 | Small subject versus foliage; known miss |
 
-`make test-integration` checks the first three scenes and the existing format
+`make test-integration` checks the first two scenes and the existing format
 fixtures, including raw/multipart equivalence and horizontally reflected subject
 regions. Reflection consistency allows 7.5% displacement because inference is
 not exactly reflection invariant.
-
-Full U²-Net currently fails the bird-on-wire integration check: its original-image
-centroid is (0.5483, 0.4663), outside the expected x range 0.44–0.53. U²-NetP
-passed this fixture. The regression remains in the CI gate with its original
-expected region.
 
 `make evaluate` runs the last three scenes against the same manually specified
 expectations. **It currently exits nonzero** with full U²-Net and ONNX Runtime

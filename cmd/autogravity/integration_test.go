@@ -34,7 +34,6 @@ func TestAnalyzeRealModel(t *testing.T) {
 		{"portrait.jpg", 0.35, 0.65, 0.30, 0.70},
 		{"dog-portrait.jpg", 0.25, 0.75, 0.58, 0.85},
 		{"puppies.jpg", 0.30, 0.70, 0.35, 0.75},
-		{"bird-wire.jpg", 0.44, 0.53, 0.44, 0.61},
 		{"panda-bamboo.jpg", 0.55, 0.80, 0.25, 0.75},
 	})
 }

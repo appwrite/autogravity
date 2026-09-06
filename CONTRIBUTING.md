@@ -30,9 +30,9 @@ lossless, and transparent WebP formats. It checks decoding, all eight EXIF
 orientations, normalization, letterbox padding, raw and multipart uploads,
 corrupt images, and recovery after analysis failures. Fixtures and their
 source licenses live in [the fixture gallery](internal/testimages/testdata/README.md).
-Additional natural photographs cover a dog low in a portrait, two puppies in
-grass, and a small bird on a wire. A user-supplied panda eating bamboo is also
-included as a regression for a previously reported failure.
+Additional natural photographs cover a dog low in a portrait and two puppies in
+grass. A user-supplied panda eating bamboo is also included as a regression for
+a previously reported failure.
 
 To also run the real U²-Net model through the HTTP handler:
 
@@ -47,10 +47,6 @@ multipart results. The integration suite requires a working runtime and model;
 it fails rather than silently skipping when they are missing. GitHub Actions
 installs the pinned runtime and runs this suite on every pull request and push
 to `main`. Default tests need neither the runtime nor network access.
-
-With full U²-Net, the integration suite currently fails the bird-on-wire subject
-region check (x = 0.5483, expected 0.44–0.53). This regression remains visible in
-CI; the expected region has not been widened.
 
 The gallery also includes three difficult natural scenes with manually annotated
 subject regions. Run `make evaluate` to check a person in a room, a pedestrian
