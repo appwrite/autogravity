@@ -28,7 +28,15 @@ func BenchmarkAnalyze(b *testing.B) {
 	projectRoot := filepath.Clean(filepath.Join(filepath.Dir(thisFile), "..", ".."))
 	modelPath := os.Getenv("MODEL_PATH")
 	if modelPath == "" {
-		modelPath = filepath.Join(projectRoot, "models", "u2net.onnx")
+		name := "u2net-int8.onnx"
+		switch precision := os.Getenv("MODEL_PRECISION"); precision {
+		case "", "int8":
+		case "fp32":
+			name = "u2net.onnx"
+		default:
+			b.Fatalf("MODEL_PRECISION must be int8 or fp32, got %q", precision)
+		}
+		modelPath = filepath.Join(projectRoot, "models", name)
 	}
 
 	model, err := saliency.New(runtimeLibrary, modelPath)

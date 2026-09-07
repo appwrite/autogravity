@@ -48,6 +48,12 @@ it fails rather than silently skipping when they are missing. GitHub Actions
 installs the pinned runtime and runs this suite on every pull request and push
 to `main`. Default tests need neither the runtime nor network access.
 
+Integration tests follow `MODEL_PRECISION` (default `int8`) and honor explicit
+`MODEL_PATH` overrides. `make test-integration-fp32` tests the FP32 environment
+switch; CI runs both modes. The INT8 binary is intentionally versioned in
+`models/` and checksum-verified, so release builds do not need the experimental
+SSH host or the calibration dataset. See `models/README.md` for provenance.
+
 The gallery also includes three difficult natural scenes with manually annotated
 subject regions. Run `make evaluate` to check a person in a room, a pedestrian
 with a dog, and a bird above tree foliage. Full U²-Net passes the person-in-room
@@ -56,6 +62,17 @@ CI regression gate; its expected regions are not adjusted to accept incorrect
 model predictions.
 
 ## Benchmarks
+
+To measure preprocessing time and Go allocations without loading ONNX Runtime:
+
+```sh
+go test ./internal/imageutil -run '^$' -bench BenchmarkPrepare -benchmem -count=3
+```
+
+`BenchmarkPrepareInto` measures the reusable input-buffer path used by the HTTP
+handler. `BenchmarkPrepare` includes input-buffer allocation. The already-sized
+case isolates normalization from resizing. These are preprocessing measurements,
+not end-to-end inference throughput.
 
 The benchmark uses the included landscape JPEG and portrait PNG. It measures image decoding, orientation handling, resize and normalization, ONNX
 inference, and focal-point calculation. Model startup is excluded.
@@ -82,6 +99,12 @@ converted to milliseconds, together with the hardware, OS, Go version, and
 ONNX Runtime version. The fixtures are synthetic, and the benchmark runs
 analyses sequentially. File reads, HTTP handling, uploads, and model startup
 are excluded.
+
+To tune production throughput, benchmark `MAX_CONCURRENT_ANALYSES` values such
+as 1, 2, 4, and 8 under an HTTP workload while recording requests/second,
+latency percentiles, and peak memory. Test `ONNX_INTRA_OP_THREADS` alongside it:
+the default of 1 is intended for concurrent requests, while a higher value may
+reduce single-request latency when more CPU cores are available.
 
 ## Layout
 

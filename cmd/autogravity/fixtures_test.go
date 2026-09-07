@@ -68,7 +68,7 @@ func TestHandleAnalyzeFixtures(t *testing.T) {
 					result[y*saliency.InputWidth+x] = 0.75
 					return result, nil
 				})
-				app := newApplication(model)
+				app := newApplication(model, 2)
 				response := httptest.NewRecorder()
 				app.handleAnalyze(response, fixtureRequest(t, fixture, multipartBody, testimages.Read(t, fixture.Name)))
 				if response.Code != http.StatusOK {
@@ -104,7 +104,7 @@ func TestHandleAnalyzeTruncatedFixtures(t *testing.T) {
 			}
 			t.Run(name, func(t *testing.T) {
 				model := analyzerFunc(func([]float32) ([]float32, error) { t.Error("inference called for corrupt image"); return nil, nil })
-				app := newApplication(model)
+				app := newApplication(model, 2)
 				data := testimages.Read(t, fixture.Name)
 				response := httptest.NewRecorder()
 				app.handleAnalyze(response, fixtureRequest(t, fixture, multipartBody, data[:len(data)/2]))
@@ -143,7 +143,7 @@ func TestHandleAnalyzeInferenceFailureRecovery(t *testing.T) {
 					return nil, errors.New("private runtime error")
 				}
 				return make([]float32, 320*320), nil
-			}))
+			}), 2)
 			fixture := testimages.All[0]
 			for _, status := range []int{http.StatusInternalServerError, http.StatusOK} {
 				response := httptest.NewRecorder()

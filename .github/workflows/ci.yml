@@ -37,6 +37,9 @@ jobs:
       - name: Test real image inference
         run: mise run test-integration
 
+      - name: Test FP32 precision override
+        run: make test-integration-fp32
+
   docker:
     name: Docker build (${{ matrix.arch }})
     strategy:

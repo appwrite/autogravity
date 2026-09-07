@@ -11,6 +11,8 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"runtime"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -23,10 +25,12 @@ import (
 const (
 	maxRequestBytes       = 10 << 20 // 10 MiB, including multipart overhead.
 	maxConcurrentUploads  = 4        // Bounds buffered bodies without reserving inference.
-	maxConcurrentAnalyses = 1        // Inference is serialized; bound decoded-image memory too.
+	defaultIntraOpThreads = 1        // Avoid N requests multiplying ONNX worker threads.
 )
 
 type analyzer interface {
+	// Infer borrows input only for the duration of the call. Returned data
+	// must remain valid independently of input and subsequent inference calls.
 	Infer([]float32) ([]float32, error)
 }
 
@@ -34,6 +38,7 @@ type application struct {
 	model         analyzer
 	uploadSlots   chan struct{}
 	analysisSlots chan struct{}
+	inputBuffers  chan []float32
 }
 
 type analyzeResponse struct {
@@ -58,20 +63,35 @@ func main() {
 
 func run() error {
 	addr := envOrDefault("ADDR", ":8080")
-	modelPath := envOrDefault("MODEL_PATH", "models/u2net.onnx")
-	runtimePath := os.Getenv("ONNXRUNTIME_LIB")
-
-	model, err := saliency.New(runtimePath, modelPath)
+	modelPath, err := configuredModelPath()
 	if err != nil {
 		return fmt.Errorf("startup: %w", err)
 	}
+	runtimePath := os.Getenv("ONNXRUNTIME_LIB")
+	maxConcurrentAnalyses, err := positiveEnvInt("MAX_CONCURRENT_ANALYSES", runtime.GOMAXPROCS(0))
+	if err != nil {
+		return fmt.Errorf("startup: %w", err)
+	}
+	intraOpThreads, err := positiveEnvInt("ONNX_INTRA_OP_THREADS", defaultIntraOpThreads)
+	if err != nil {
+		return fmt.Errorf("startup: %w", err)
+	}
+
+	model, err := saliency.NewWithOptions(runtimePath, modelPath, saliency.Options{
+		IntraOpThreads: intraOpThreads,
+	})
+	if err != nil {
+		return fmt.Errorf("startup: %w", err)
+	}
+	slog.Info("model loaded", "path", modelPath, "architecture", runtime.GOARCH,
+		"analysis_slots", maxConcurrentAnalyses, "intra_op_threads", intraOpThreads)
 	defer func() {
 		if err := model.Close(); err != nil {
 			slog.Error("failed to close model", "error", err)
 		}
 	}()
 
-	app := newApplication(model)
+	app := newApplication(model, maxConcurrentAnalyses)
 	mux := http.NewServeMux()
 	mux.HandleFunc("/analyze", app.handleAnalyze)
 	mux.HandleFunc("/healthz", app.handleHealthz)
@@ -109,6 +129,22 @@ func run() error {
 		return fmt.Errorf("graceful shutdown: %w", err)
 	}
 	return nil
+}
+
+// An explicit path takes precedence. Otherwise precision is identical across
+// architectures; invalid settings fail rather than silently changing quality.
+func configuredModelPath() (string, error) {
+	if path := os.Getenv("MODEL_PATH"); path != "" {
+		return path, nil
+	}
+	switch precision := envOrDefault("MODEL_PRECISION", "int8"); precision {
+	case "int8":
+		return "models/u2net-int8.onnx", nil
+	case "fp32":
+		return "models/u2net.onnx", nil
+	default:
+		return "", fmt.Errorf("MODEL_PRECISION must be int8 or fp32, got %q", precision)
+	}
 }
 
 func (app *application) handleHealthz(w http.ResponseWriter, r *http.Request) {
@@ -178,7 +214,19 @@ func (app *application) handleAnalyze(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	input, content, err := imageutil.Prepare(img, saliency.InputWidth, saliency.InputHeight)
+	var input []float32
+	select {
+	case input = <-app.inputBuffers:
+	default:
+		input = make([]float32, 3*saliency.InputWidth*saliency.InputHeight)
+	}
+	defer func() {
+		select {
+		case app.inputBuffers <- input:
+		default:
+		}
+	}()
+	content, err := imageutil.PrepareInto(input, img, saliency.InputWidth, saliency.InputHeight)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to preprocess image")
 		return
@@ -204,11 +252,12 @@ func (app *application) handleAnalyze(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, analyzeResponse{Gravity: point, Confidence: confidence})
 }
 
-func newApplication(model analyzer) *application {
+func newApplication(model analyzer, maxConcurrentAnalyses int) *application {
 	return &application{
 		model:         model,
 		uploadSlots:   make(chan struct{}, maxConcurrentUploads),
 		analysisSlots: make(chan struct{}, maxConcurrentAnalyses),
+		inputBuffers:  make(chan []float32, maxConcurrentAnalyses),
 	}
 }
 
@@ -278,4 +327,16 @@ func envOrDefault(key, fallback string) string {
 		return value
 	}
 	return fallback
+}
+
+func positiveEnvInt(key string, fallback int) (int, error) {
+	value := strings.TrimSpace(os.Getenv(key))
+	if value == "" {
+		return fallback, nil
+	}
+	parsed, err := strconv.Atoi(value)
+	if err != nil || parsed < 1 {
+		return 0, fmt.Errorf("%s must be a positive integer, got %q", key, value)
+	}
+	return parsed, nil
 }

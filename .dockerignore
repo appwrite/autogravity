@@ -1,3 +1,4 @@
 .git
 autogravity
 models/*.onnx
+!models/u2net-int8.onnx
