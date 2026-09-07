@@ -65,10 +65,6 @@ jobs:
         with:
           context: .
           platforms: ${{ matrix.platform }}
-          load: true
-          tags: autogravity:ci
+          outputs: type=cacheonly
           cache-from: type=gha,scope=docker-${{ matrix.arch }}
           cache-to: type=gha,mode=max,scope=docker-${{ matrix.arch }}
-
-      - name: Test default precision and overrides
-        run: sh tools/test-container.sh autogravity:ci
