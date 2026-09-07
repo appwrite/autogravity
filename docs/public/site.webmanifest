@@ -1,0 +1,16 @@
+{
+  "name": "autogravity docs",
+  "short_name": "autogravity",
+  "description": "Image focal-point detection as a microservice.",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ],
+  "theme_color": "#19191c",
+  "background_color": "#19191c",
+  "display": "standalone"
+}

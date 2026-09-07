@@ -1,3 +1,5 @@
+![autogravity cover](assets/cover.png)
+
 # autogravity
 
 `autogravity` is a small Go HTTP service that finds the main visual subject in

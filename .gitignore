@@ -1,3 +1,5 @@
 /autogravity
 /models/*.onnx
 !/models/u2net-int8.onnx
+/docs/node_modules
+/docs/.output

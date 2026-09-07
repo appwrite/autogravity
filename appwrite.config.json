@@ -1,0 +1,24 @@
+{
+    "projectId": "6a9e5d640016fa6fb653",
+    "endpoint": "https://fra.cloud.appwrite.io/v1",
+    "sites": [
+        {
+            "$id": "autogravity-docs",
+            "name": "autogravity docs",
+            "enabled": true,
+            "logging": true,
+            "framework": "tanstack-start",
+            "timeout": 30,
+            "installCommand": "npm install",
+            "buildCommand": "npm run build",
+            "outputDirectory": "./.output",
+            "specification": "s-1vcpu-512mb",
+            "buildRuntime": "node-22",
+            "buildSpecification": "s-2vcpu-2gb",
+            "runtimeSpecification": "s-1vcpu-512mb",
+            "adapter": "ssr",
+            "fallbackFile": "",
+            "path": "docs"
+        }
+    ]
+}
