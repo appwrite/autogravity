@@ -24,6 +24,32 @@ type fakeAnalyzer struct {
 	maxInFlight atomic.Int32
 }
 
+func TestConfiguredModelPath(t *testing.T) {
+	for _, tc := range []struct {
+		name, precision, path, want string
+		invalid                     bool
+	}{
+		{"default", "", "", "models/u2net-int8.onnx", false},
+		{"int8", "int8", "", "models/u2net-int8.onnx", false},
+		{"fp32", "fp32", "", "models/u2net.onnx", false},
+		{"invalid", "fp16", "", "", true},
+		{"override", "int8", "/custom/fp32.onnx", "/custom/fp32.onnx", false},
+		{"override invalid precision", "fp16", "/custom/model.onnx", "/custom/model.onnx", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("MODEL_PATH", tc.path)
+			t.Setenv("MODEL_PRECISION", tc.precision)
+			got, err := configuredModelPath()
+			if (err != nil) != tc.invalid {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if got != tc.want {
+				t.Fatalf("got %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 type blockingReader struct {
 	started chan struct{}
 	release chan struct{}
@@ -75,7 +101,7 @@ func (f *fakeAnalyzer) Infer(input []float32) ([]float32, error) {
 }
 
 func TestHandleAnalyzeRawImage(t *testing.T) {
-	app := newApplication(&fakeAnalyzer{})
+	app := newApplication(&fakeAnalyzer{}, 2)
 	request := httptest.NewRequest(http.MethodPost, "/analyze", bytes.NewReader(testPNG(t)))
 	request.Header.Set("Content-Type", "image/png")
 	response := httptest.NewRecorder()
@@ -114,7 +140,7 @@ func TestHandleAnalyzeMultipartImage(t *testing.T) {
 	request := httptest.NewRequest(http.MethodPost, "/analyze", &body)
 	request.Header.Set("Content-Type", writer.FormDataContentType())
 	response := httptest.NewRecorder()
-	newApplication(&fakeAnalyzer{}).handleAnalyze(response, request)
+	newApplication(&fakeAnalyzer{}, 2).handleAnalyze(response, request)
 
 	if response.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200; body = %s", response.Code, response.Body.String())
@@ -142,7 +168,7 @@ func TestHandleAnalyzeErrors(t *testing.T) {
 				request.Header.Set("Content-Type", tt.contentType)
 			}
 			response := httptest.NewRecorder()
-			newApplication(&fakeAnalyzer{}).handleAnalyze(response, request)
+			newApplication(&fakeAnalyzer{}, 2).handleAnalyze(response, request)
 			if response.Code != tt.wantStatus {
 				t.Fatalf("status = %d, want %d; body = %s", response.Code, tt.wantStatus, response.Body.String())
 			}
@@ -152,7 +178,8 @@ func TestHandleAnalyzeErrors(t *testing.T) {
 
 func TestHandleAnalyzeBoundsConcurrentWork(t *testing.T) {
 	analyzer := &fakeAnalyzer{delay: 10 * time.Millisecond}
-	app := newApplication(analyzer)
+	const concurrency = 2
+	app := newApplication(analyzer, concurrency)
 	data := testPNG(t)
 
 	var wait sync.WaitGroup
@@ -171,13 +198,38 @@ func TestHandleAnalyzeBoundsConcurrentWork(t *testing.T) {
 	}
 	wait.Wait()
 
-	if got := analyzer.maxInFlight.Load(); got != maxConcurrentAnalyses {
-		t.Fatalf("maximum concurrent analyses = %d, want %d", got, maxConcurrentAnalyses)
+	if got := analyzer.maxInFlight.Load(); got != concurrency {
+		t.Fatalf("maximum concurrent analyses = %d, want %d", got, concurrency)
+	}
+}
+
+func TestPositiveEnvInt(t *testing.T) {
+	const key = "TEST_CONCURRENCY"
+	for _, tt := range []struct {
+		name  string
+		value string
+		want  int
+		bad   bool
+	}{
+		{name: "unset", want: 2},
+		{name: "valid", value: "4", want: 4},
+		{name: "trimmed", value: " 3 ", want: 3},
+		{name: "zero", value: "0", bad: true},
+		{name: "negative", value: "-1", bad: true},
+		{name: "not a number", value: "many", bad: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv(key, tt.value)
+			got, err := positiveEnvInt(key, 2)
+			if (err != nil) != tt.bad || got != tt.want {
+				t.Fatalf("positiveEnvInt() = %d, %v; want %d, bad=%v", got, err, tt.want, tt.bad)
+			}
+		})
 	}
 }
 
 func TestHandleAnalyzeSlowUploadDoesNotTakeAnalysisSlot(t *testing.T) {
-	app := newApplication(&fakeAnalyzer{})
+	app := newApplication(&fakeAnalyzer{}, 2)
 	slowBody := &blockingReader{started: make(chan struct{}), release: make(chan struct{})}
 	slowRequest := httptest.NewRequest(http.MethodPost, "/analyze", slowBody)
 	slowRequest.Header.Set("Content-Type", "image/png")
@@ -203,7 +255,9 @@ func TestHandleAnalyzeSlowUploadDoesNotTakeAnalysisSlot(t *testing.T) {
 
 func TestHandleAnalyzeBoundsBufferedUploads(t *testing.T) {
 	analyzer := &gatedAnalyzer{started: make(chan struct{}), release: make(chan struct{})}
-	app := newApplication(analyzer)
+	// This test isolates upload admission by deliberately occupying the only
+	// analysis slot. Concurrent analysis is covered separately above.
+	app := newApplication(analyzer, 1)
 	data := testPNG(t)
 
 	var wait sync.WaitGroup
@@ -247,7 +301,7 @@ func TestHandleAnalyzeBoundsBufferedUploads(t *testing.T) {
 }
 
 func TestHandleHealthz(t *testing.T) {
-	app := newApplication(&fakeAnalyzer{})
+	app := newApplication(&fakeAnalyzer{}, 2)
 	request := httptest.NewRequest(http.MethodGet, "/healthz", nil)
 	response := httptest.NewRecorder()
 
@@ -272,7 +326,7 @@ func TestHandleHealthzErrors(t *testing.T) {
 	t.Run("method not allowed", func(t *testing.T) {
 		request := httptest.NewRequest(http.MethodPost, "/healthz", nil)
 		response := httptest.NewRecorder()
-		newApplication(&fakeAnalyzer{}).handleHealthz(response, request)
+		newApplication(&fakeAnalyzer{}, 2).handleHealthz(response, request)
 		if response.Code != http.StatusMethodNotAllowed {
 			t.Fatalf("status = %d, want 405; body = %s", response.Code, response.Body.String())
 		}
@@ -281,7 +335,7 @@ func TestHandleHealthzErrors(t *testing.T) {
 	t.Run("model not ready", func(t *testing.T) {
 		request := httptest.NewRequest(http.MethodGet, "/healthz", nil)
 		response := httptest.NewRecorder()
-		newApplication(nil).handleHealthz(response, request)
+		newApplication(nil, 2).handleHealthz(response, request)
 		if response.Code != http.StatusServiceUnavailable {
 			t.Fatalf("status = %d, want 503; body = %s", response.Code, response.Body.String())
 		}

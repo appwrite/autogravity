@@ -8,7 +8,8 @@ submitted image.
 ## Requirements
 
 - Go 1.25 or newer
-- The full U²-Net ONNX model, approximately 168 MiB (`make model` downloads and verifies it)
+- The included INT8 U²-Net model (approximately 42 MiB). `make model` verifies it
+  and downloads/verifies the FP32 fallback (approximately 168 MiB).
 - An ONNX Runtime shared library. Version 1.23.2 is used by the Docker image and
   matches the pinned Go binding.
 
@@ -34,12 +35,28 @@ The server listens on `:8080`. These environment variables are available:
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `ADDR` | `:8080` | HTTP listen address |
-| `MODEL_PATH` | `models/u2net.onnx` | U²-Net model path |
+| `MODEL_PRECISION` | `int8` | `int8` or `fp32`, on every architecture |
+| `MODEL_PATH` | unset | Explicit model path; overrides `MODEL_PRECISION` |
 | `ONNXRUNTIME_LIB` | required | Full ONNX Runtime shared-library path |
+| `MAX_CONCURRENT_ANALYSES` | available CPUs | Maximum images decoded and inferred concurrently |
+| `ONNX_INTRA_OP_THREADS` | `1` | CPU threads used within each ONNX operator |
 
 ## Performance
 
-On an Apple M3 Pro, image analysis takes about **290–390 ms per image** with full U²-Net
+INT8 is the default on both amd64 and arm64. Set `MODEL_PRECISION=fp32` to use
+FP32, or `MODEL_PATH` for a custom artifact. Unknown precision values fail
+startup unless an explicit model path is supplied; there is no silent fallback.
+Native runs select `models/u2net-int8.onnx` or `models/u2net.onnx` relative to
+the working directory. Containers use the same selection under `/opt`.
+
+On the tested x86 Xeon, INT8 delivered **38–45% more HTTP throughput** at four
+CPUs and approximately **64–65% lower peak container memory**. Across 200
+held-out public images, median focal-point shift was 0.10%, p95 0.91%, and the
+worst shift 7.4% of an image dimension. These throughput gains are not established
+for ARM64. See the [expanded evaluation](tools/quantization/RESULTS-expanded.md)
+for crop-quality trade-offs and complete measurements.
+
+On an Apple M3 Pro, historical **FP32** image analysis takes about **290–390 ms per image** with full U²-Net
 and CPU-only ONNX Runtime:
 
 | Input | Dimensions | Time per image |
@@ -57,15 +74,25 @@ file reads, uploads, and HTTP overhead. Performance varies with hardware and
 input images; see [benchmark instructions](CONTRIBUTING.md#benchmarks) to measure
 your environment.
 
+By default, the server runs one analysis per effective CPU using one shared
+model session. With Go 1.25, this respects Linux container CPU limits through
+the runtime's container-aware `GOMAXPROCS` setting. ONNX Runtime uses one
+intra-op thread per analysis, preventing its internal worker pool from
+multiplying with request concurrency. Set explicit CPU and memory limits for
+predictable resource use, and override `MAX_CONCURRENT_ANALYSES` when memory is
+the tighter constraint.
+
 ## Docker
 
-The image downloads the verified U²-Net model and the CPU-only ONNX Runtime
-library during the build. Docker BuildKit supports both `linux/amd64` and
-`linux/arm64`.
+The image bundles the verified INT8 model and downloads the verified FP32 model
+and CPU-only ONNX Runtime during the build. Both models are included on both
+`linux/amd64` and `linux/arm64`; selection is by environment, not architecture.
 
 ```sh
 docker build -t autogravity .
 docker run --rm -p 8080:8080 autogravity
+# Select FP32 without rebuilding:
+docker run --rm -p 8080:8080 -e MODEL_PRECISION=fp32 autogravity
 ```
 
 ### Container releases

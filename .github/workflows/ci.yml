@@ -37,6 +37,9 @@ jobs:
       - name: Test real image inference
         run: mise run test-integration
 
+      - name: Test FP32 precision override
+        run: make test-integration-fp32
+
   docker:
     name: Docker build (${{ matrix.arch }})
     strategy:
@@ -62,6 +65,10 @@ jobs:
         with:
           context: .
           platforms: ${{ matrix.platform }}
-          outputs: type=cacheonly
+          load: true
+          tags: autogravity:ci
           cache-from: type=gha,scope=docker-${{ matrix.arch }}
           cache-to: type=gha,mode=max,scope=docker-${{ matrix.arch }}
+
+      - name: Test default precision and overrides
+        run: sh tools/test-container.sh autogravity:ci

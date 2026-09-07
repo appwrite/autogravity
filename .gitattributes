@@ -1,0 +1,4 @@
+# Keep reproducibility data available without overwhelming code review.
+/tools/quantization/results-*.json linguist-generated=true
+/tools/quantization/dataset-*.json linguist-generated=true
+/tools/quantization/timings-*.json linguist-generated=true

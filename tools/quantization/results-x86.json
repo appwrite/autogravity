@@ -1,0 +1,284 @@
+{
+  "date": "2026-09-07",
+  "host_cpu": "Intel Xeon Platinum 8259CL",
+  "physical_cores": 4,
+  "logical_cpus": 8,
+  "onnxruntime": "1.23.2",
+  "duration_seconds_before_drain": 30,
+  "memory_limit_gib": 4,
+  "intra_op_threads": 1,
+  "results": [
+    {
+      "variant": "u2net",
+      "workers": 1,
+      "successes": 26,
+      "errors": [],
+      "elapsed_including_drain": 30.665214250329882,
+      "requests_per_second": 0.8478662430907459,
+      "cpu_cores_used": 1.0003896189856227,
+      "peak_cgroup_memory_mib": 1133.3515625,
+      "p50_ms": 1176.5861546155065,
+      "p95_ms": 1211.3378356443718,
+      "focal_points": {
+        "dog-portrait.jpg": [
+          0.5093354034274348,
+          0.7127089187597966,
+          1
+        ],
+        "panda-bamboo.jpg": [
+          0.5856840787709021,
+          0.6570381836379713,
+          1
+        ],
+        "pedestrian-dog.jpg": [
+          0.6777416163014264,
+          0.5435751277487566,
+          0.9809092283248901
+        ],
+        "bird-branch.jpg": [
+          0.41131989120092527,
+          0.39396242166385487,
+          0.9980874061584473
+        ]
+      }
+    },
+    {
+      "variant": "u8s8-reduced",
+      "workers": 1,
+      "successes": 36,
+      "errors": [],
+      "elapsed_including_drain": 30.598006025888026,
+      "requests_per_second": 1.1765472550577811,
+      "cpu_cores_used": 1.0003396291282243,
+      "peak_cgroup_memory_mib": 237.0546875,
+      "p50_ms": 843.0602261796594,
+      "p95_ms": 884.2675297055393,
+      "focal_points": {
+        "dog-portrait.jpg": [
+          0.5095126877912908,
+          0.7122099245688208,
+          1
+        ],
+        "panda-bamboo.jpg": [
+          0.5855050854526492,
+          0.6552641936888044,
+          1
+        ],
+        "pedestrian-dog.jpg": [
+          0.7032996597270387,
+          0.4847262035769388,
+          0.996078610420227
+        ],
+        "bird-branch.jpg": [
+          0.4325773692298248,
+          0.39940432422461236,
+          0.996078610420227
+        ]
+      }
+    },
+    {
+      "variant": "u2net",
+      "workers": 2,
+      "successes": 50,
+      "errors": [],
+      "elapsed_including_drain": 31.130925205070525,
+      "requests_per_second": 1.6061199489135687,
+      "cpu_cores_used": 1.9963332471043147,
+      "peak_cgroup_memory_mib": 1389.25390625,
+      "p50_ms": 1233.2956565078348,
+      "p95_ms": 1358.4386232076213,
+      "focal_points": {
+        "dog-portrait.jpg": [
+          0.5093354034274348,
+          0.7127089187597966,
+          1
+        ],
+        "panda-bamboo.jpg": [
+          0.5856840787709021,
+          0.6570381836379713,
+          1
+        ],
+        "pedestrian-dog.jpg": [
+          0.6777416163014264,
+          0.5435751277487566,
+          0.9809092283248901
+        ],
+        "bird-branch.jpg": [
+          0.41131989120092527,
+          0.39396242166385487,
+          0.9980874061584473
+        ]
+      }
+    },
+    {
+      "variant": "u8s8-reduced",
+      "workers": 2,
+      "successes": 70,
+      "errors": [],
+      "elapsed_including_drain": 30.373981039971113,
+      "requests_per_second": 2.3046040592401242,
+      "cpu_cores_used": 1.9997684175830301,
+      "peak_cgroup_memory_mib": 433.50390625,
+      "p50_ms": 860.004395712167,
+      "p95_ms": 917.0137590263039,
+      "focal_points": {
+        "dog-portrait.jpg": [
+          0.5095126877912908,
+          0.7122099245688208,
+          1
+        ],
+        "panda-bamboo.jpg": [
+          0.5855050854526492,
+          0.6552641936888044,
+          1
+        ],
+        "pedestrian-dog.jpg": [
+          0.7032996597270387,
+          0.4847262035769388,
+          0.996078610420227
+        ],
+        "bird-branch.jpg": [
+          0.4325773692298248,
+          0.39940432422461236,
+          0.996078610420227
+        ]
+      }
+    },
+    {
+      "variant": "u2net",
+      "workers": 4,
+      "successes": 96,
+      "errors": [],
+      "elapsed_including_drain": 30.51142380340025,
+      "requests_per_second": 3.1463625105984594,
+      "cpu_cores_used": 3.985023405772691,
+      "peak_cgroup_memory_mib": 2030.19140625,
+      "p50_ms": 1262.2273885644972,
+      "p95_ms": 1342.0347350183874,
+      "focal_points": {
+        "dog-portrait.jpg": [
+          0.5093354034274348,
+          0.7127089187597966,
+          1
+        ],
+        "panda-bamboo.jpg": [
+          0.5856840787709021,
+          0.6570381836379713,
+          1
+        ],
+        "pedestrian-dog.jpg": [
+          0.6777416163014264,
+          0.5435751277487566,
+          0.9809092283248901
+        ],
+        "bird-branch.jpg": [
+          0.41131989120092527,
+          0.39396242166385487,
+          0.9980874061584473
+        ]
+      }
+    },
+    {
+      "variant": "u8s8-reduced",
+      "workers": 4,
+      "successes": 130,
+      "errors": [],
+      "elapsed_including_drain": 30.86272115819156,
+      "requests_per_second": 4.212201488445081,
+      "cpu_cores_used": 3.9453372363337937,
+      "peak_cgroup_memory_mib": 714.62109375,
+      "p50_ms": 914.536006981507,
+      "p95_ms": 1081.069870502688,
+      "focal_points": {
+        "dog-portrait.jpg": [
+          0.5095126877912908,
+          0.7122099245688208,
+          1
+        ],
+        "panda-bamboo.jpg": [
+          0.5855050854526492,
+          0.6552641936888044,
+          1
+        ],
+        "pedestrian-dog.jpg": [
+          0.7032996597270387,
+          0.4847262035769388,
+          0.996078610420227
+        ],
+        "bird-branch.jpg": [
+          0.4325773692298248,
+          0.39940432422461236,
+          0.996078610420227
+        ]
+      }
+    },
+    {
+      "variant": "u2net",
+      "workers": 6,
+      "successes": 95,
+      "errors": [],
+      "elapsed_including_drain": 31.087514083832502,
+      "requests_per_second": 3.055889246847373,
+      "cpu_cores_used": 5.867275154524471,
+      "peak_cgroup_memory_mib": 2928.17578125,
+      "p50_ms": 2014.2163019627333,
+      "p95_ms": 2422.377909813076,
+      "focal_points": {
+        "dog-portrait.jpg": [
+          0.5093354034274348,
+          0.7127089187597966,
+          1
+        ],
+        "panda-bamboo.jpg": [
+          0.5856840787709021,
+          0.6570381836379713,
+          1
+        ],
+        "pedestrian-dog.jpg": [
+          0.6777416163014264,
+          0.5435751277487566,
+          0.9809092283248901
+        ],
+        "bird-branch.jpg": [
+          0.41131989120092527,
+          0.39396242166385487,
+          0.9980874061584473
+        ]
+      }
+    },
+    {
+      "variant": "u8s8-reduced",
+      "workers": 6,
+      "successes": 145,
+      "errors": [],
+      "elapsed_including_drain": 30.78870011586696,
+      "requests_per_second": 4.709520033464298,
+      "cpu_cores_used": 5.91559189944942,
+      "peak_cgroup_memory_mib": 788.56640625,
+      "p50_ms": 1305.4600809700787,
+      "p95_ms": 1535.0315047428012,
+      "focal_points": {
+        "dog-portrait.jpg": [
+          0.5095126877912908,
+          0.7122099245688208,
+          1
+        ],
+        "panda-bamboo.jpg": [
+          0.5855050854526492,
+          0.6552641936888044,
+          1
+        ],
+        "pedestrian-dog.jpg": [
+          0.7032996597270387,
+          0.4847262035769388,
+          0.996078610420227
+        ],
+        "bird-branch.jpg": [
+          0.4325773692298248,
+          0.39940432422461236,
+          0.996078610420227
+        ]
+      }
+    }
+  ]
+}

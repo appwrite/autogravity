@@ -19,6 +19,13 @@ func TestNewRequiresPaths(t *testing.T) {
 	}
 }
 
+func TestNewRejectsNegativeIntraOpThreadsBeforeRuntimeAccess(t *testing.T) {
+	model, err := NewWithOptions("runtime.so", "model.onnx", Options{IntraOpThreads: -1})
+	if model != nil || err == nil || err.Error() != "ONNX intra-op threads must be at least zero" {
+		t.Fatalf("NewWithOptions() = %v, %v", model, err)
+	}
+}
+
 func TestInferRejectsInvalidTensorBeforeRuntimeAccess(t *testing.T) {
 	model := &Model{}
 	for _, length := range []int{0, 1, InputWidth * InputHeight, 3*InputWidth*InputHeight - 1, 3*InputWidth*InputHeight + 1} {

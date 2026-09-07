@@ -49,6 +49,21 @@ func Decode(data []byte) (image.Image, error) {
 // aspect ratio. It returns a normalized RGB NCHW tensor and the rectangle
 // occupied by the image; unused tensor pixels are neutral zero padding.
 func Prepare(img image.Image, width, height int) ([]float32, image.Rectangle, error) {
+	return prepare(nil, img, width, height)
+}
+
+// PrepareInto reuses dst for the normalized tensor. Its length must be exactly
+// 3*width*height. Padding is cleared on every call, including when dst is reused
+// for images with different aspect ratios.
+func PrepareInto(dst []float32, img image.Image, width, height int) (image.Rectangle, error) {
+	if width <= 0 || height <= 0 || len(dst) != 3*width*height {
+		return image.Rectangle{}, errors.New("invalid preprocessing buffer dimensions")
+	}
+	_, content, err := prepare(dst, img, width, height)
+	return content, err
+}
+
+func prepare(tensor []float32, img image.Image, width, height int) ([]float32, image.Rectangle, error) {
 	if img == nil || width <= 0 || height <= 0 {
 		return nil, image.Rectangle{}, errors.New("invalid preprocessing dimensions")
 	}
@@ -67,13 +82,24 @@ func Prepare(img image.Image, width, height int) ([]float32, image.Rectangle, er
 	resized := imaging.Resize(img, resizedWidth, resizedHeight, imaging.Linear)
 
 	pixels := width * height
-	tensor := make([]float32, 3*pixels)
+	if tensor == nil {
+		tensor = make([]float32, 3*pixels)
+	} else {
+		clear(tensor)
+	}
 	mean := [3]float32{0.485, 0.456, 0.406}
 	stddev := [3]float32{0.229, 0.224, 0.225}
 
 	for y := 0; y < resizedHeight; y++ {
+		row := resized.Pix[y*resized.Stride : y*resized.Stride+4*resizedWidth]
 		for x := 0; x < resizedWidth; x++ {
-			r, g, b, _ := resized.At(x, y).RGBA()
+			p := row[4*x : 4*x+4]
+			// Match color.NRGBA.RGBA's 16-bit premultiplication, including
+			// its integer rounding for partially transparent pixels.
+			a := uint32(p[3])
+			r := uint32(p[0]) * 257 * a / 255
+			g := uint32(p[1]) * 257 * a / 255
+			b := uint32(p[2]) * 257 * a / 255
 			values := [3]float32{
 				float32(r) / 65535,
 				float32(g) / 65535,

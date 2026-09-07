@@ -5,12 +5,14 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"image/png"
 	"math"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 
 	"autogravity/internal/imageutil"
@@ -38,6 +40,84 @@ func TestAnalyzeRealModel(t *testing.T) {
 	})
 }
 
+func TestConcurrentInferenceIsConsistent(t *testing.T) {
+	library := os.Getenv("ONNXRUNTIME_LIB")
+	if library == "" {
+		t.Fatal("integration tests require ONNXRUNTIME_LIB")
+	}
+	modelPath := os.Getenv("MODEL_PATH")
+	if modelPath == "" {
+		selected, err := configuredModelPath()
+		if err != nil {
+			t.Fatal(err)
+		}
+		modelPath = filepath.Join("..", "..", selected)
+	}
+	model, err := saliency.NewWithOptions(library, modelPath, saliency.Options{IntraOpThreads: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := model.Close(); err != nil {
+			t.Error(err)
+		}
+	})
+
+	fixture := testimages.All[0]
+	img, err := imageutil.Decode(testimages.Read(t, fixture.Name))
+	if err != nil {
+		t.Fatal(err)
+	}
+	input, _, err := imageutil.Prepare(img, saliency.InputWidth, saliency.InputHeight)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := model.Infer(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	const workers = 4
+	var wait sync.WaitGroup
+	errors := make(chan error, workers)
+	for range workers {
+		wait.Add(1)
+		go func() {
+			defer wait.Done()
+			got, err := model.Infer(input)
+			if err != nil {
+				errors <- err
+				return
+			}
+			for i := range want {
+				if got[i] != want[i] {
+					errors <- fmt.Errorf("output[%d] = %v, want %v", i, got[i], want[i])
+					return
+				}
+			}
+		}()
+	}
+	wait.Wait()
+	close(errors)
+	for err := range errors {
+		t.Error(err)
+	}
+	// Infer returns independently owned Go memory, even after another call
+	// uses different input and the native runtime has been destroyed.
+	snapshot := append([]float32(nil), want...)
+	if _, err := model.Infer(make([]float32, len(input))); err != nil {
+		t.Fatal(err)
+	}
+	if err := model.Close(); err != nil {
+		t.Fatal(err)
+	}
+	for i := range want {
+		if want[i] != snapshot[i] {
+			t.Fatalf("returned output changed at %d after inference/Close", i)
+		}
+	}
+}
+
 // Missing prerequisites fail explicitly so CI cannot silently skip real inference.
 func runSubjectCases(t *testing.T, cases []subjectCase) {
 	t.Helper()
@@ -47,7 +127,11 @@ func runSubjectCases(t *testing.T, cases []subjectCase) {
 	}
 	modelPath := os.Getenv("MODEL_PATH")
 	if modelPath == "" {
-		modelPath = filepath.Join("..", "..", "models", "u2net.onnx")
+		selected, err := configuredModelPath()
+		if err != nil {
+			t.Fatal(err)
+		}
+		modelPath = filepath.Join("..", "..", selected)
 	}
 	model, err := saliency.New(library, modelPath)
 	if err != nil {
@@ -58,7 +142,7 @@ func runSubjectCases(t *testing.T, cases []subjectCase) {
 			t.Error(err)
 		}
 	})
-	app := newApplication(model)
+	app := newApplication(model, 2)
 	analyze := func(t *testing.T, fixture testimages.Fixture, multi bool, data []byte) analyzeResponse {
 		t.Helper()
 		response := httptest.NewRecorder()

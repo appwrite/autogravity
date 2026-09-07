@@ -1,8 +1,8 @@
-MODEL_PATH := models/u2net.onnx
-MODEL_URL := https://github.com/danielgatis/rembg/releases/download/v0.0.0/u2net.onnx
-MODEL_SHA256 := 8d10d2f3bb75ae3b6d527c77944fc5e7dcd94b29809d47a739a7a728a912b491
+FP32_MODEL_PATH := models/u2net.onnx
+FP32_MODEL_URL := https://github.com/danielgatis/rembg/releases/download/v0.0.0/u2net.onnx
+FP32_MODEL_SHA256 := 8d10d2f3bb75ae3b6d527c77944fc5e7dcd94b29809d47a739a7a728a912b491
 
-.PHONY: build run test test-integration evaluate model
+.PHONY: build run test test-integration test-integration-fp32 evaluate model model-fp32 model-int8
 
 build:
 	go build -o autogravity ./cmd/autogravity
@@ -16,11 +16,19 @@ test:
 test-integration: model
 	go test -race -tags=integration ./...
 
+test-integration-fp32: model-fp32
+	MODEL_PATH= MODEL_PRECISION=fp32 go test -race -tags=integration ./...
+
 evaluate: model
 	go test -tags=integration,evaluation -run TestEvaluateDifficultScenes -v ./cmd/autogravity
 
-model:
-	@if [ ! -f "$(MODEL_PATH)" ]; then \
-		curl -fL --retry 3 -o "$(MODEL_PATH)" "$(MODEL_URL)"; \
+model: model-fp32 model-int8
+
+model-int8:
+	@echo "b340186f56660b6665e494aab912e5f8e9adbc2317181c77fd01aa226f06553b  models/u2net-int8.onnx" | shasum -a 256 -c
+
+model-fp32:
+	@if [ ! -f "$(FP32_MODEL_PATH)" ]; then \
+		curl -fL --retry 3 -o "$(FP32_MODEL_PATH)" "$(FP32_MODEL_URL)"; \
 	fi
-	@echo "$(MODEL_SHA256)  $(MODEL_PATH)" | shasum -a 256 -c
+	@echo "$(FP32_MODEL_SHA256)  $(FP32_MODEL_PATH)" | shasum -a 256 -c

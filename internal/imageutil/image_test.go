@@ -12,6 +12,58 @@ import (
 	"testing"
 )
 
+func TestPreparePreservesPremultiplication(t *testing.T) {
+	img := image.NewNRGBA(image.Rect(0, 0, 256, 256))
+	for a := range 256 {
+		for c := range 256 {
+			img.SetNRGBA(c, a, color.NRGBA{R: byte(c), G: byte(c), B: byte(c), A: byte(a)})
+		}
+	}
+	got, _, err := Prepare(img, 256, 256)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mean := [3]float32{0.485, 0.456, 0.406}
+	stddev := [3]float32{0.229, 0.224, 0.225}
+	for a := range 256 {
+		for c := range 256 {
+			r, _, _, _ := img.At(c, a).RGBA()
+			for channel := range 3 {
+				want := (float32(r)/65535 - mean[channel]) / stddev[channel]
+				if value := got[channel*256*256+a*256+c]; value != want {
+					t.Fatalf("alpha=%d color=%d channel=%d: got %v, want %v", a, c, channel, value, want)
+				}
+			}
+		}
+	}
+}
+
+func TestPrepareIntoClearsReusedPadding(t *testing.T) {
+	dst := make([]float32, 3*32*32)
+	for _, size := range []image.Point{{32, 32}, {32, 8}, {8, 32}, {1, 1}} {
+		img := image.NewNRGBA(image.Rectangle{Max: size})
+		for i := range img.Pix {
+			img.Pix[i] = 255
+		}
+		want, wantContent, err := Prepare(img, 32, 32)
+		if err != nil {
+			t.Fatal(err)
+		}
+		content, err := PrepareInto(dst, img, 32, 32)
+		if err != nil || content != wantContent {
+			t.Fatalf("PrepareInto(%v) = %v, %v", size, content, err)
+		}
+		for i := range dst {
+			if dst[i] != want[i] {
+				t.Fatalf("size=%v index=%d: got %v, want %v", size, i, dst[i], want[i])
+			}
+		}
+	}
+	if _, err := PrepareInto(dst[:len(dst)-1], image.NewGray(image.Rect(0, 0, 1, 1)), 32, 32); err == nil {
+		t.Fatal("accepted wrong-sized buffer")
+	}
+}
+
 func TestDecodeWebP(t *testing.T) {
 	data, err := base64.StdEncoding.DecodeString(
 		"UklGRiIAAABXRUJQVlA4IBYAAAAwAQCdASoBAAEADsD+JaQAA3AAAAAA",

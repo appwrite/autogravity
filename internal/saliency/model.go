@@ -16,23 +16,62 @@ const (
 
 // Model owns a single reusable ONNX Runtime session.
 type Model struct {
-	mu      sync.Mutex
+	mu      sync.RWMutex
 	session *ort.DynamicAdvancedSession
 	closed  bool
 }
 
+// Options controls the ONNX Runtime session used by the model.
+type Options struct {
+	// IntraOpThreads is the number of threads used within each operator. Zero
+	// keeps ONNX Runtime's default. Use one when running multiple requests in
+	// parallel on a CPU-constrained container to avoid oversubscription.
+	IntraOpThreads int
+}
+
 // New initializes ONNX Runtime and loads the model once.
 func New(runtimeLibraryPath, modelPath string) (*Model, error) {
+	return NewWithOptions(runtimeLibraryPath, modelPath, Options{})
+}
+
+// NewWithOptions initializes ONNX Runtime and loads the model once with the
+// supplied session settings.
+func NewWithOptions(runtimeLibraryPath, modelPath string, options Options) (*Model, error) {
 	if runtimeLibraryPath == "" {
 		return nil, errors.New("ONNX Runtime library path is required")
 	}
 	if modelPath == "" {
 		return nil, errors.New("model path is required")
 	}
+	if options.IntraOpThreads < 0 {
+		return nil, errors.New("ONNX intra-op threads must be at least zero")
+	}
 
 	ort.SetSharedLibraryPath(runtimeLibraryPath)
 	if err := ort.InitializeEnvironment(); err != nil {
 		return nil, fmt.Errorf("initialize ONNX Runtime: %w", err)
+	}
+	loaded := false
+	defer func() {
+		if !loaded {
+			// Registered before sessionOptions.Destroy: options must be freed
+			// before destroying the environment unloads the shared library.
+			_ = ort.DestroyEnvironment()
+		}
+	}()
+
+	sessionOptions, err := ort.NewSessionOptions()
+	if err != nil {
+		return nil, fmt.Errorf("create ONNX Runtime session options: %w", err)
+	}
+	defer sessionOptions.Destroy()
+	if err := sessionOptions.SetIntraOpNumThreads(options.IntraOpThreads); err != nil {
+		return nil, fmt.Errorf("configure ONNX Runtime intra-op threads: %w", err)
+	}
+	// Sequential mode avoids creating an inter-op thread pool. Independent
+	// requests still run concurrently by calling Run on the shared session.
+	if err := sessionOptions.SetExecutionMode(ort.ExecutionModeSequential); err != nil {
+		return nil, fmt.Errorf("configure ONNX Runtime execution mode: %w", err)
 	}
 
 	// U2-Net exposes seven side outputs. The first (1959) is the fused,
@@ -41,13 +80,13 @@ func New(runtimeLibraryPath, modelPath string) (*Model, error) {
 		modelPath,
 		[]string{"input.1"},
 		[]string{"1959"},
-		nil,
+		sessionOptions,
 	)
 	if err != nil {
-		_ = ort.DestroyEnvironment()
 		return nil, fmt.Errorf("load saliency model: %w", err)
 	}
 
+	loaded = true
 	return &Model{session: session}, nil
 }
 
@@ -55,6 +94,14 @@ func New(runtimeLibraryPath, modelPath string) (*Model, error) {
 func (m *Model) Infer(input []float32) ([]float32, error) {
 	if len(input) != 3*InputWidth*InputHeight {
 		return nil, fmt.Errorf("invalid input tensor length: got %d", len(input))
+	}
+	// ONNX Runtime supports concurrent Run calls on one CPU session. Hold the
+	// lifecycle read lock across all runtime calls so Close cannot destroy the
+	// environment while tensors or inference are active.
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.closed {
+		return nil, errors.New("saliency model is closed")
 	}
 
 	inputTensor, err := ort.NewTensor(
@@ -66,19 +113,18 @@ func (m *Model) Infer(input []float32) ([]float32, error) {
 	}
 	defer inputTensor.Destroy()
 
-	outputTensor, err := ort.NewEmptyTensor[float32](
+	// Keep ownership of the Go output buffer: destroying the ONNX tensor
+	// releases the runtime wrapper, not this backing slice.
+	result := make([]float32, InputWidth*InputHeight)
+	outputTensor, err := ort.NewTensor(
 		ort.NewShape(1, 1, InputHeight, InputWidth),
+		result,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("create output tensor: %w", err)
 	}
 	defer outputTensor.Destroy()
 
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if m.closed {
-		return nil, errors.New("saliency model is closed")
-	}
 	if err := m.session.Run(
 		[]ort.Value{inputTensor},
 		[]ort.Value{outputTensor},
@@ -86,8 +132,6 @@ func (m *Model) Infer(input []float32) ([]float32, error) {
 		return nil, fmt.Errorf("run saliency model: %w", err)
 	}
 
-	result := make([]float32, InputWidth*InputHeight)
-	copy(result, outputTensor.GetData())
 	return result, nil
 }
 
