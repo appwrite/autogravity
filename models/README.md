@@ -16,10 +16,12 @@ Makefile (SHA-256 `8d10d2f3bb75ae3b6d527c77944fc5e7dcd94b29809d47a739a7a728a912b
 Modifications made on 2026-09-07: migrate the graph to opset 13, preprocess it,
 and apply static MinMax, per-channel, reduced-range U8/S8 QOperator quantization
 with ONNX Runtime 1.23.2. Calibration uses 128 ECSSD images with native x86 Go
-preprocessing. The user-provided panda and all evaluation images are excluded
-from this calibration. See `tools/quantization/README.md`, `dataset-expanded.json`,
-and `RESULTS-expanded.md` in the source repository for reproduction and quality
-trade-offs. Raw calibration images are not bundled with the model.
+preprocessing. The user-provided panda and all evaluation images were excluded
+from calibration. Evaluation used 200 separate ECSSD images plus nine extra
+fixtures. Median focal-point shift versus FP32 was 0.10% of an image dimension,
+p95 was 0.91%, and the maximum was 7.4%. At four CPUs on the tested x86 Xeon,
+two HTTP runs measured 38–45% more throughput and 64–65% less peak cgroup memory.
+Raw calibration and evaluation images are not bundled with the model.
 
 Both architectures default to `MODEL_PRECISION=int8`. Set `MODEL_PRECISION=fp32`
 to use the bundled FP32 model. An explicit `MODEL_PATH` overrides precision.

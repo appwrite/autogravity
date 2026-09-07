@@ -53,8 +53,8 @@ On the tested x86 Xeon, INT8 delivered **38–45% more HTTP throughput** at four
 CPUs and approximately **64–65% lower peak container memory**. Across 200
 held-out public images, median focal-point shift was 0.10%, p95 0.91%, and the
 worst shift 7.4% of an image dimension. These throughput gains are not established
-for ARM64. See the [expanded evaluation](tools/quantization/RESULTS-expanded.md)
-for crop-quality trade-offs and complete measurements.
+for ARM64. The calibration and evaluation provenance is documented with the
+model artifact in [models/README.md](models/README.md).
 
 On an Apple M3 Pro, historical **FP32** image analysis takes about **290–390 ms per image** with full U²-Net
 and CPU-only ONNX Runtime:
