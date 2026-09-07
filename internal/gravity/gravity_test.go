@@ -71,6 +71,35 @@ func TestFromSaliencyRejectsInvalidDimensions(t *testing.T) {
 	}
 }
 
+// Regression for panoramic images with two distant subjects. Computing one
+// centroid across both regions places gravity in the empty middle; selecting
+// the region with greater integrated saliency keeps it on a subject.
+func TestFromSaliencySelectsStrongestSeparatedSubject(t *testing.T) {
+	const width, height = 11, 5
+	mapData := make([]float32, width*height)
+
+	// Both subjects reach the same peak confidence, but the left subject has
+	// greater saliency mass (6.0 versus 4.0).
+	for _, point := range []image.Point{{1, 1}, {2, 1}, {1, 2}, {2, 2}, {1, 3}, {2, 3}} {
+		mapData[point.Y*width+point.X] = 1
+	}
+	for _, point := range []image.Point{{8, 1}, {9, 1}, {8, 2}, {9, 2}} {
+		mapData[point.Y*width+point.X] = 1
+	}
+
+	got, confidence, err := FromSaliency(mapData, width, height)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := Point{X: 0.15, Y: 0.5}
+	if !closeEnough(got.X, want.X) || !closeEnough(got.Y, want.Y) {
+		t.Fatalf("FromSaliency() = %+v, want strongest left subject at %+v", got, want)
+	}
+	if confidence != 1 {
+		t.Fatalf("confidence = %v, want 1", confidence)
+	}
+}
+
 func TestFromSaliencyRegionIgnoresPadding(t *testing.T) {
 	mapData := make([]float32, 4*4)
 	mapData[0] = 10      // Padding must not affect the result or confidence.
