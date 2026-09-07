@@ -40,6 +40,20 @@ func TestFromSaliency(t *testing.T) {
 			confidence: 1,
 		},
 		{
+			name: "diagonally connected pixels form one region",
+			mapData: []float32{
+				1, 0, 0, 0, 0.75,
+				0, 1, 0, 0, 0.75,
+				0, 0, 1, 0, 0,
+				0, 0, 0, 0, 0,
+				0, 0, 0, 0, 0,
+			},
+			width:      5,
+			height:     5,
+			want:       Point{X: 0.25, Y: 0.25},
+			confidence: 1,
+		},
+		{
 			name:       "empty map falls back to center",
 			mapData:    make([]float32, 8),
 			width:      4,
