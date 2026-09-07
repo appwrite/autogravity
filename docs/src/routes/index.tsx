@@ -20,7 +20,7 @@ function DocsPage() {
           <p className="doc-lead">
             A small Go HTTP service that finds the main visual subject in an
             image. It runs U²-Net with ONNX Runtime and returns the
-            saliency-weighted centroid as normalized X/Y coordinates. It never
+            weighted centroid of the strongest salient region as normalized X/Y coordinates. It never
             crops, stores, or modifies the submitted image.
           </p>
           <div className="pill-row">
@@ -120,7 +120,7 @@ function DocsPage() {
           <HttpEndpoint
             method="POST"
             path="/analyze"
-            description="Returns the saliency-weighted focal point as normalized coordinates."
+            description="Returns the strongest salient region's weighted focal point as normalized coordinates."
           />
 
           <div className="code-grid">

@@ -3,9 +3,9 @@
 # autogravity
 
 `autogravity` is a small Go HTTP service that finds the main visual subject in
-an image. It runs U²-Net with ONNX Runtime and returns the saliency-weighted
-centroid as normalized X/Y coordinates. It never crops, stores, or modifies the
-submitted image.
+an image. It runs U²-Net with ONNX Runtime, selects the strongest connected
+salient region, and returns its weighted centroid as normalized X/Y coordinates.
+It never crops, stores, or modifies the submitted image.
 
 ## Requirements
 
@@ -156,7 +156,9 @@ Example response:
 Coordinates are in `[0.0, 1.0]`, measured from the oriented image's top-left
 corner. EXIF orientation is applied before analysis. Images are fitted within
 the model's 320x320 input using neutral padding, without stretching or
-cropping. Padding is excluded from the focal-point calculation. Confidence is
+cropping. Padding is excluded from the focal-point calculation. Pixels reaching
+at least half the peak activation are grouped into connected regions, and the
+region with the greatest total saliency supplies the focal point. Confidence is
 the peak activation in the model's fused saliency map, clamped to `[0.0, 1.0]`.
 
 Requests are limited to 10 MiB and decoded images to 20 megapixels. Separate
