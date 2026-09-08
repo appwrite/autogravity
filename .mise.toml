@@ -22,7 +22,7 @@ description = "Test real image inference (requires ONNXRUNTIME_LIB)"
 run = "make test-integration"
 
 [tasks.model]
-description = "Download and verify the ONNX models"
+description = "Download and verify U²-Net"
 run = "make model"
 
 [tasks.bench]
