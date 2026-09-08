@@ -1,6 +1,7 @@
 import { createFileRoute } from '@tanstack/react-router'
 import CodePanel from '../components/CodePanel'
 import DocsSidebar from '../components/DocsSidebar'
+import FacePriorityDemo from '../components/FacePriorityDemo'
 import GravityDemo from '../components/GravityDemo'
 import HttpEndpoint from '../components/HttpEndpoint'
 import InlineCode from '../components/InlineCode'
@@ -28,6 +29,20 @@ function DocsPage() {
             <span className="pill">JPEG · PNG · WebP</span>
             <span className="pill">CPU-only</span>
           </div>
+        </section>
+
+        <section id="face-priority" className="doc-section">
+          <SectionTitle
+            kicker="How it works"
+            title="Face-first, with a safe fallback"
+            lead="The current pipeline runs YuNet first. A reliable face becomes the focal point immediately; without one, the same U²-Net saliency path continues unchanged. These comparisons use real model output from the integration fixtures."
+          />
+          <FacePriorityDemo />
+          <p className="doc-footnote">
+            Green boxes are detected faces, the thicker box is the selected
+            primary face, and each crosshair is the returned normalized gravity
+            coordinate. No identity recognition is performed.
+          </p>
         </section>
 
         <section id="preview" className="doc-section">
