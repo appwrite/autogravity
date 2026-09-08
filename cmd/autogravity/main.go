@@ -8,12 +8,14 @@ import (
 	"io"
 	"log/slog"
 	"mime"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
 	"runtime"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -23,22 +25,32 @@ import (
 )
 
 const (
-	maxRequestBytes       = 10 << 20 // 10 MiB, including multipart overhead.
-	maxConcurrentUploads  = 4        // Bounds buffered bodies without reserving inference.
-	defaultIntraOpThreads = 1        // Avoid N requests multiplying ONNX worker threads.
+	maxRequestBytes        = 10 << 20 // 10 MiB, including multipart overhead.
+	maxConcurrentUploads   = 4        // Bounds buffered bodies without reserving inference.
+	defaultIntraOpThreads  = 1        // Avoid N requests multiplying ONNX worker threads.
+	defaultAnalysisTimeout = 30 * time.Second
+	defaultShutdownTimeout = 30 * time.Second
+)
+
+var (
+	version = "dev"
+	commit  = "unknown"
 )
 
 type analyzer interface {
 	// Infer borrows input only for the duration of the call. Returned data
 	// must remain valid independently of input and subsequent inference calls.
-	Infer([]float32) ([]float32, error)
+	Infer(context.Context, []float32) ([]float32, error)
 }
 
 type application struct {
-	model         analyzer
-	uploadSlots   chan struct{}
-	analysisSlots chan struct{}
-	inputBuffers  chan []float32
+	model           analyzer
+	uploadSlots     chan struct{}
+	analysisSlots   chan struct{}
+	inputBuffers    chan []float32
+	telemetry       *telemetry
+	analysisTimeout time.Duration
+	draining        atomic.Bool
 }
 
 type analyzeResponse struct {
@@ -55,6 +67,7 @@ type errorResponse struct {
 }
 
 func main() {
+	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, nil)))
 	if err := run(); err != nil {
 		slog.Error("service stopped", "error", err)
 		os.Exit(1)
@@ -76,6 +89,14 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("startup: %w", err)
 	}
+	analysisTimeout, err := positiveEnvDuration("ANALYSIS_TIMEOUT", defaultAnalysisTimeout)
+	if err != nil {
+		return fmt.Errorf("startup: %w", err)
+	}
+	shutdownTimeout, err := positiveEnvDuration("SHUTDOWN_TIMEOUT", defaultShutdownTimeout)
+	if err != nil {
+		return fmt.Errorf("startup: %w", err)
+	}
 
 	model, err := saliency.NewWithOptions(runtimePath, modelPath, saliency.Options{
 		IntraOpThreads: intraOpThreads,
@@ -92,18 +113,25 @@ func run() error {
 	}()
 
 	app := newApplication(model, maxConcurrentAnalyses)
+	app.analysisTimeout = analysisTimeout
 	mux := http.NewServeMux()
 	mux.HandleFunc("/analyze", app.handleAnalyze)
-	mux.HandleFunc("/healthz", app.handleHealthz)
+	mux.HandleFunc("/livez", app.handleLivez)
+	mux.HandleFunc("/readyz", app.handleReadyz)
+	mux.HandleFunc("/healthz", app.handleReadyz)
+	mux.Handle("/metrics", app.telemetry.handler())
 
 	server := &http.Server{
 		Addr:              addr,
-		Handler:           mux,
+		Handler:           app.telemetry.instrument("", mux),
 		ReadHeaderTimeout: 5 * time.Second,
-		ReadTimeout:       30 * time.Second,
-		WriteTimeout:      30 * time.Second,
+		ReadTimeout:       analysisTimeout,
+		WriteTimeout:      analysisTimeout + 5*time.Second,
 		IdleTimeout:       60 * time.Second,
 	}
+	serviceCtx, cancelService := context.WithCancel(context.Background())
+	defer cancelService()
+	server.BaseContext = func(net.Listener) context.Context { return serviceCtx }
 
 	shutdownSignals := make(chan os.Signal, 1)
 	signal.Notify(shutdownSignals, syscall.SIGINT, syscall.SIGTERM)
@@ -123,12 +151,23 @@ func run() error {
 		return fmt.Errorf("serve HTTP: %w", err)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
+	app.draining.Store(true)
+	ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	if err := server.Shutdown(ctx); err != nil {
+		cancel()
+		cancelService() // Interrupt context-aware ONNX inference before force-closing sockets.
+		if closeErr := server.Close(); closeErr != nil {
+			return errors.Join(fmt.Errorf("graceful shutdown: %w", err), fmt.Errorf("force close: %w", closeErr))
+		}
 		return fmt.Errorf("graceful shutdown: %w", err)
 	}
+	cancel()
 	return nil
+}
+
+// handleHealthz remains as a compatibility alias for callers and tests.
+func (app *application) handleHealthz(w http.ResponseWriter, r *http.Request) {
+	app.handleReadyz(w, r)
 }
 
 // An explicit path takes precedence. Otherwise precision is identical across
@@ -147,13 +186,22 @@ func configuredModelPath() (string, error) {
 	}
 }
 
-func (app *application) handleHealthz(w http.ResponseWriter, r *http.Request) {
+func (app *application) handleLivez(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		w.Header().Set("Allow", http.MethodGet)
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
-	if app.model == nil {
+	writeJSON(w, http.StatusOK, healthResponse{Status: "ok"})
+}
+
+func (app *application) handleReadyz(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		w.Header().Set("Allow", http.MethodGet)
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	if app.model == nil || app.draining.Load() {
 		writeError(w, http.StatusServiceUnavailable, "model not ready")
 		return
 	}
@@ -166,9 +214,32 @@ func (app *application) handleAnalyze(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
+	if app.draining.Load() {
+		w.Header().Set("Retry-After", "1")
+		writeError(w, http.StatusServiceUnavailable, "service is shutting down")
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), app.analysisTimeout)
+	defer cancel()
+	r = r.WithContext(ctx)
+	outcome := "success"
+	defer func() { app.telemetry.analyses.WithLabelValues(outcome).Inc() }()
+	observeCancellation := func() {
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			outcome = "timeout"
+			app.telemetry.cancellations.WithLabelValues("deadline").Inc()
+		} else {
+			outcome = "cancelled"
+			app.telemetry.cancellations.WithLabelValues("client").Inc()
+		}
+	}
+	uploadWaitStarted := time.Now()
 	select {
 	case app.uploadSlots <- struct{}{}:
-	case <-r.Context().Done():
+		app.telemetry.stageDuration.WithLabelValues("upload_queue").Observe(time.Since(uploadWaitStarted).Seconds())
+	case <-ctx.Done():
+		observeCancellation()
+		writeContextError(w, ctx)
 		return
 	}
 	uploadSlotHeld := true
@@ -182,6 +253,12 @@ func (app *application) handleAnalyze(w http.ResponseWriter, r *http.Request) {
 	defer r.Body.Close()
 	data, err := readImage(r)
 	if err != nil {
+		if ctx.Err() != nil {
+			observeCancellation()
+			writeContextError(w, ctx)
+			return
+		}
+		outcome = "invalid_request"
 		var tooLarge *http.MaxBytesError
 		if errors.As(err, &tooLarge) {
 			writeError(w, http.StatusRequestEntityTooLarge, "image exceeds the 10 MiB request limit")
@@ -190,10 +267,14 @@ func (app *application) handleAnalyze(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	analysisWaitStarted := time.Now()
 	select {
 	case app.analysisSlots <- struct{}{}:
+		app.telemetry.stageDuration.WithLabelValues("analysis_queue").Observe(time.Since(analysisWaitStarted).Seconds())
 		defer func() { <-app.analysisSlots }()
-	case <-r.Context().Done():
+	case <-ctx.Done():
+		observeCancellation()
+		writeContextError(w, ctx)
 		return
 	}
 	// Keep the upload slot while waiting for analysis so buffered request bodies
@@ -201,6 +282,7 @@ func (app *application) handleAnalyze(w http.ResponseWriter, r *http.Request) {
 	<-app.uploadSlots
 	uploadSlotHeld = false
 
+	preprocessStarted := time.Now()
 	img, err := imageutil.Decode(data)
 	if err != nil {
 		switch {
@@ -211,6 +293,7 @@ func (app *application) handleAnalyze(w http.ResponseWriter, r *http.Request) {
 		default:
 			writeError(w, http.StatusBadRequest, "invalid image")
 		}
+		outcome = "invalid_image"
 		return
 	}
 
@@ -228,15 +311,33 @@ func (app *application) handleAnalyze(w http.ResponseWriter, r *http.Request) {
 	}()
 	content, err := imageutil.PrepareInto(input, img, saliency.InputWidth, saliency.InputHeight)
 	if err != nil {
+		outcome = "preprocessing_error"
 		writeError(w, http.StatusInternalServerError, "failed to preprocess image")
 		return
 	}
-	mapData, err := app.model.Infer(input)
+	app.telemetry.stageDuration.WithLabelValues("preprocessing").Observe(time.Since(preprocessStarted).Seconds())
+	inferenceStarted := time.Now()
+	app.telemetry.inferenceActive.Inc()
+	mapData, err := app.model.Infer(ctx, input)
+	app.telemetry.inferenceActive.Dec()
+	app.telemetry.stageDuration.WithLabelValues("inference").Observe(time.Since(inferenceStarted).Seconds())
 	if err != nil {
+		if ctx.Err() != nil {
+			observeCancellation()
+			writeContextError(w, ctx)
+			return
+		}
+		outcome = "inference_error"
 		slog.Error("inference failed", "error", err)
 		writeError(w, http.StatusInternalServerError, "image analysis failed")
 		return
 	}
+	if ctx.Err() != nil {
+		observeCancellation()
+		writeContextError(w, ctx)
+		return
+	}
+	focalStarted := time.Now()
 	point, confidence, err := gravity.FromSaliencyRegion(
 		mapData,
 		saliency.InputWidth,
@@ -244,8 +345,15 @@ func (app *application) handleAnalyze(w http.ResponseWriter, r *http.Request) {
 		content,
 	)
 	if err != nil {
+		outcome = "focal_point_error"
 		slog.Error("focal-point calculation failed", "error", err)
 		writeError(w, http.StatusInternalServerError, "image analysis failed")
+		return
+	}
+	app.telemetry.stageDuration.WithLabelValues("focal_point").Observe(time.Since(focalStarted).Seconds())
+	if ctx.Err() != nil {
+		observeCancellation()
+		writeContextError(w, ctx)
 		return
 	}
 
@@ -254,11 +362,21 @@ func (app *application) handleAnalyze(w http.ResponseWriter, r *http.Request) {
 
 func newApplication(model analyzer, maxConcurrentAnalyses int) *application {
 	return &application{
-		model:         model,
-		uploadSlots:   make(chan struct{}, maxConcurrentUploads),
-		analysisSlots: make(chan struct{}, maxConcurrentAnalyses),
-		inputBuffers:  make(chan []float32, maxConcurrentAnalyses),
+		model:           model,
+		uploadSlots:     make(chan struct{}, maxConcurrentUploads),
+		analysisSlots:   make(chan struct{}, maxConcurrentAnalyses),
+		inputBuffers:    make(chan []float32, maxConcurrentAnalyses),
+		telemetry:       newTelemetry(envOrDefault("MODEL_PRECISION", "int8"), maxConcurrentAnalyses),
+		analysisTimeout: defaultAnalysisTimeout,
 	}
+}
+
+func writeContextError(w http.ResponseWriter, ctx context.Context) {
+	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		writeError(w, http.StatusGatewayTimeout, "analysis timed out")
+		return
+	}
+	writeError(w, 499, "request cancelled")
 }
 
 func readImage(r *http.Request) ([]byte, error) {
@@ -337,6 +455,18 @@ func positiveEnvInt(key string, fallback int) (int, error) {
 	parsed, err := strconv.Atoi(value)
 	if err != nil || parsed < 1 {
 		return 0, fmt.Errorf("%s must be a positive integer, got %q", key, value)
+	}
+	return parsed, nil
+}
+
+func positiveEnvDuration(key string, fallback time.Duration) (time.Duration, error) {
+	value := strings.TrimSpace(os.Getenv(key))
+	if value == "" {
+		return fallback, nil
+	}
+	parsed, err := time.ParseDuration(value)
+	if err != nil || parsed <= 0 {
+		return 0, fmt.Errorf("%s must be a positive duration, got %q", key, value)
 	}
 	return parsed, nil
 }

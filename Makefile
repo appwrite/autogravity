@@ -1,11 +1,14 @@
 FP32_MODEL_PATH := models/u2net.onnx
 FP32_MODEL_URL := https://github.com/danielgatis/rembg/releases/download/v0.0.0/u2net.onnx
 FP32_MODEL_SHA256 := 8d10d2f3bb75ae3b6d527c77944fc5e7dcd94b29809d47a739a7a728a912b491
+VERSION ?= dev
+COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
+LDFLAGS := -X main.version=$(VERSION) -X main.commit=$(COMMIT)
 
 .PHONY: build run test test-integration test-integration-fp32 evaluate model model-fp32 model-int8
 
 build:
-	go build -o autogravity ./cmd/autogravity
+	go build -ldflags="$(LDFLAGS)" -o autogravity ./cmd/autogravity
 
 run: model
 	go run ./cmd/autogravity

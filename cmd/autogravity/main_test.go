@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"image"
 	"image/color"
@@ -22,6 +23,22 @@ type fakeAnalyzer struct {
 	delay       time.Duration
 	inFlight    atomic.Int32
 	maxInFlight atomic.Int32
+}
+
+type contextAnalyzer struct{}
+
+func (contextAnalyzer) Infer(ctx context.Context, _ []float32) ([]float32, error) {
+	<-ctx.Done()
+	return nil, ctx.Err()
+}
+
+type cancelAfterAnalyzer struct{ cancel context.CancelFunc }
+
+func (a cancelAfterAnalyzer) Infer(_ context.Context, _ []float32) ([]float32, error) {
+	result := make([]float32, saliency.InputWidth*saliency.InputHeight)
+	result[len(result)/2] = 0.9
+	a.cancel()
+	return result, nil
 }
 
 func TestConfiguredModelPath(t *testing.T) {
@@ -62,7 +79,7 @@ type gatedAnalyzer struct {
 	once    sync.Once
 }
 
-func (a *gatedAnalyzer) Infer([]float32) ([]float32, error) {
+func (a *gatedAnalyzer) Infer(context.Context, []float32) ([]float32, error) {
 	a.once.Do(func() { close(a.started) })
 	<-a.release
 	return make([]float32, saliency.InputWidth*saliency.InputHeight), nil
@@ -85,7 +102,7 @@ func (r *blockingReader) Read([]byte) (int, error) {
 	return 0, io.EOF
 }
 
-func (f *fakeAnalyzer) Infer(input []float32) ([]float32, error) {
+func (f *fakeAnalyzer) Infer(_ context.Context, input []float32) ([]float32, error) {
 	current := f.inFlight.Add(1)
 	defer f.inFlight.Add(-1)
 	for {
@@ -225,6 +242,109 @@ func TestPositiveEnvInt(t *testing.T) {
 				t.Fatalf("positiveEnvInt() = %d, %v; want %d, bad=%v", got, err, tt.want, tt.bad)
 			}
 		})
+	}
+}
+
+func TestPositiveEnvDuration(t *testing.T) {
+	const key = "TEST_DURATION"
+	for _, tt := range []struct {
+		value string
+		want  time.Duration
+		bad   bool
+	}{
+		{"", time.Second, false},
+		{"250ms", 250 * time.Millisecond, false},
+		{"0s", 0, true},
+		{"later", 0, true},
+	} {
+		t.Setenv(key, tt.value)
+		got, err := positiveEnvDuration(key, time.Second)
+		if (err != nil) != tt.bad || got != tt.want {
+			t.Fatalf("positiveEnvDuration(%q) = %v, %v; want %v, bad=%v", tt.value, got, err, tt.want, tt.bad)
+		}
+	}
+}
+
+func TestHandleAnalyzeDeadlineCancelsInference(t *testing.T) {
+	app := newApplication(contextAnalyzer{}, 1)
+	app.analysisTimeout = 10 * time.Millisecond
+	request := httptest.NewRequest(http.MethodPost, "/analyze", bytes.NewReader(testPNG(t)))
+	request.Header.Set("Content-Type", "image/png")
+	response := httptest.NewRecorder()
+
+	app.handleAnalyze(response, request)
+
+	if response.Code != http.StatusGatewayTimeout {
+		t.Fatalf("status = %d, want 504; body = %s", response.Code, response.Body.String())
+	}
+	if len(app.uploadSlots) != 0 || len(app.analysisSlots) != 0 {
+		t.Fatal("admission slots leaked after cancellation")
+	}
+}
+
+func TestHandleAnalyzeChecksCancellationAfterInference(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	app := newApplication(cancelAfterAnalyzer{cancel: cancel}, 1)
+	request := httptest.NewRequest(http.MethodPost, "/analyze", bytes.NewReader(testPNG(t))).WithContext(ctx)
+	request.Header.Set("Content-Type", "image/png")
+	response := httptest.NewRecorder()
+
+	app.handleAnalyze(response, request)
+
+	if response.Code != 499 {
+		t.Fatalf("status = %d, want 499; body = %s", response.Code, response.Body.String())
+	}
+}
+
+func TestDrainingRejectsAnalysisAndReadiness(t *testing.T) {
+	app := newApplication(&fakeAnalyzer{}, 1)
+	app.draining.Store(true)
+
+	analyze := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/analyze", bytes.NewReader(testPNG(t)))
+	request.Header.Set("Content-Type", "image/png")
+	app.handleAnalyze(analyze, request)
+	if analyze.Code != http.StatusServiceUnavailable || analyze.Header().Get("Retry-After") != "1" {
+		t.Fatalf("analyze response = %d, Retry-After %q", analyze.Code, analyze.Header().Get("Retry-After"))
+	}
+
+	ready := httptest.NewRecorder()
+	app.handleReadyz(ready, httptest.NewRequest(http.MethodGet, "/readyz", nil))
+	if ready.Code != http.StatusServiceUnavailable {
+		t.Fatalf("ready status = %d, want 503", ready.Code)
+	}
+
+	live := httptest.NewRecorder()
+	app.handleLivez(live, httptest.NewRequest(http.MethodGet, "/livez", nil))
+	if live.Code != http.StatusOK {
+		t.Fatalf("live status = %d, want 200", live.Code)
+	}
+}
+
+func TestTelemetryPropagatesSafeRequestID(t *testing.T) {
+	tel := newTelemetry("int8", 1)
+	handler := tel.instrument("/livez", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	request := httptest.NewRequest(http.MethodGet, "/livez", nil)
+	request.Header.Set("X-Request-ID", "request_123")
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if got := response.Header().Get("X-Request-ID"); got != "request_123" {
+		t.Fatalf("request ID = %q", got)
+	}
+}
+
+func TestTelemetryCoversUnmatchedRoutes(t *testing.T) {
+	tel := newTelemetry("int8", 1)
+	handler := tel.instrument("", http.NewServeMux())
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/missing", nil))
+	if response.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404", response.Code)
+	}
+	if response.Header().Get("X-Request-ID") == "" {
+		t.Fatal("unmatched response has no request ID")
 	}
 }
 

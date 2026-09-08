@@ -1,6 +1,7 @@
 package benchmark_test
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -68,7 +69,7 @@ func BenchmarkAnalyze(b *testing.B) {
 				if err != nil {
 					b.Fatal(err)
 				}
-				mapData, err := model.Infer(input)
+				mapData, err := model.Infer(context.Background(), input)
 				if err != nil {
 					b.Fatal(err)
 				}

@@ -42,6 +42,8 @@ The server listens on `:8080`. These environment variables are available:
 | `ONNXRUNTIME_LIB` | required | Full ONNX Runtime shared-library path |
 | `MAX_CONCURRENT_ANALYSES` | available CPUs | Maximum images decoded and inferred concurrently |
 | `ONNX_INTRA_OP_THREADS` | `1` | CPU threads used within each ONNX operator |
+| `ANALYSIS_TIMEOUT` | `30s` | Maximum lifetime of an analysis, including upload and queue waits |
+| `SHUTDOWN_TIMEOUT` | `30s` | Grace period for active requests during shutdown |
 
 ## Performance
 
@@ -114,10 +116,11 @@ Published images include build provenance and an SBOM.
 
 ## API
 
-Health check (returns 503 until the model is loaded):
+Liveness and readiness checks:
 
 ```sh
-curl -sS http://localhost:8080/healthz
+curl -sS http://localhost:8080/livez
+curl -sS http://localhost:8080/readyz
 ```
 
 ```json
@@ -125,6 +128,10 @@ curl -sS http://localhost:8080/healthz
   "status": "ok"
 }
 ```
+
+`/livez` reports that the process is running. `/readyz` reports whether the
+service is accepting analyses and returns 503 as soon as graceful shutdown
+starts. `/healthz` remains a compatibility alias for `/readyz`.
 
 Send a JPEG, PNG, or WebP image as a multipart `image` field:
 
@@ -166,6 +173,27 @@ upload and analysis admission limits bound buffered-body and decoded-image
 memory without allowing slow uploads to reserve inference capacity. The model
 is loaded once at startup and its shared inference session is reused safely
 across requests.
+
+## Telemetry and shutdown
+
+The service writes structured JSON logs to stdout. Each HTTP request receives
+an `X-Request-ID`; a caller-supplied ID is retained when it contains only ASCII
+letters, digits, `_`, or `-` and is at most 64 characters. Logs never include
+uploaded image data, filenames, query strings, or request headers.
+
+Prometheus metrics are exposed at `/metrics`, including HTTP rates and latency,
+pipeline stage latency, active inference count, outcomes, cancellations, Go
+runtime statistics, process statistics, and build information. Keep this
+endpoint private at the ingress layer.
+
+Every analysis has a configurable deadline. Cancellation propagates into ONNX
+Runtime and terminates that request's native inference without affecting other
+concurrent requests. On SIGINT or SIGTERM, readiness becomes false immediately,
+new analyses receive 503 with `Retry-After`, and active requests may finish for
+`SHUTDOWN_TIMEOUT`. Once the grace period expires, their contexts are cancelled,
+native inference is terminated, connections are closed, and the model is then
+released. Set the orchestrator termination grace period longer than
+`SHUTDOWN_TIMEOUT`.
 
 ## Model quality
 
