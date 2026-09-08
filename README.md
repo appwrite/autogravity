@@ -2,16 +2,18 @@
 
 # autogravity
 
-`autogravity` is a small Go HTTP service that finds the main visual subject in
-an image. It runs U²-Net with ONNX Runtime, selects the strongest connected
-salient region, and returns its weighted centroid as normalized X/Y coordinates.
-It never crops, stores, or modifies the submitted image.
+`autogravity` is a small Go HTTP service that finds the best crop focus in an
+image. It prioritizes a confidently detected face using YuNet, then falls back
+to the weighted centroid of the strongest U²-Net salient region. Results are
+normalized X/Y coordinates. It never crops, stores, identifies, or modifies the
+submitted image.
 
 ## Requirements
 
 - Go 1.25 or newer
-- The included INT8 U²-Net model (approximately 42 MiB). `make model` verifies it
-  and downloads/verifies the FP32 fallback (approximately 168 MiB).
+- The included INT8 U²-Net model (approximately 42 MiB) and YuNet face detector
+  (approximately 230 KiB). `make model` verifies them and downloads/verifies the
+  FP32 U²-Net fallback (approximately 168 MiB).
 - An ONNX Runtime shared library. Version 1.23.2 is used by the Docker image and
   matches the pinned Go binding.
 
@@ -39,6 +41,8 @@ The server listens on `:8080`. These environment variables are available:
 | `ADDR` | `:8080` | HTTP listen address |
 | `MODEL_PRECISION` | `int8` | `int8` or `fp32`, on every architecture |
 | `MODEL_PATH` | unset | Explicit model path; overrides `MODEL_PRECISION` |
+| `FACE_MODEL_PATH` | `models/face_detection_yunet_2023mar.onnx` | YuNet face-detection model path |
+| `FACE_SCORE_THRESHOLD` | `0.85` | Minimum face confidence in `(0.0, 1.0]` |
 | `ONNXRUNTIME_LIB` | required | Full ONNX Runtime shared-library path |
 | `MAX_CONCURRENT_ANALYSES` | available CPUs | Maximum images decoded and inferred concurrently |
 | `ONNX_INTRA_OP_THREADS` | `1` | CPU threads used within each ONNX operator |
@@ -72,14 +76,16 @@ Measured on September 6, 2026, with macOS 26.5.2 (arm64), 18 GiB RAM, Go 1.25.14
 and ONNX Runtime 1.23.2. Each result is the median of five sequential benchmark
 samples using `-benchtime=3s` and the checked-in synthetic images.
 
-Timings include decoding, orientation handling, resizing and normalization to
-320 × 320, inference, and focal-point calculation. They exclude model startup,
-file reads, uploads, and HTTP overhead. Performance varies with hardware and
-input images; see [benchmark instructions](CONTRIBUTING.md#benchmarks) to measure
-your environment.
+These historical timings measure the saliency fallback: decoding, orientation
+handling, resizing and normalization to 320 × 320, U²-Net inference, and
+focal-point calculation. Face-selected requests skip U²-Net and are typically
+substantially faster; every request still pays for the lightweight face check.
+Timings exclude model startup, file reads, uploads, and HTTP overhead.
+Performance varies with hardware and input images; see
+[benchmark instructions](CONTRIBUTING.md#benchmarks) to measure your environment.
 
 By default, the server runs one analysis per effective CPU using one shared
-model session. With Go 1.25, this respects Linux container CPU limits through
+session per model. With Go 1.25, this respects Linux container CPU limits through
 the runtime's container-aware `GOMAXPROCS` setting. ONNX Runtime uses one
 intra-op thread per analysis, preventing its internal worker pool from
 multiplying with request concurrency. Set explicit CPU and memory limits for
@@ -88,9 +94,10 @@ the tighter constraint.
 
 ## Docker
 
-The image bundles the verified INT8 model and downloads the verified FP32 model
-and CPU-only ONNX Runtime during the build. Both models are included on both
-`linux/amd64` and `linux/arm64`; selection is by environment, not architecture.
+The image bundles the verified INT8 and face models and downloads the verified
+FP32 model and CPU-only ONNX Runtime during the build. All models are included
+on `linux/amd64` and `linux/arm64`; U²-Net precision selection is by
+environment, not architecture.
 
 ```sh
 docker build -t autogravity .
@@ -156,22 +163,31 @@ Example response:
     "x": 0.68,
     "y": 0.37
   },
-  "confidence": 0.91
+  "confidence": 0.91,
+  "source": "face"
 }
 ```
 
 Coordinates are in `[0.0, 1.0]`, measured from the oriented image's top-left
-corner. EXIF orientation is applied before analysis. Images are fitted within
-the model's 320x320 input using neutral padding, without stretching or
-cropping. Padding is excluded from the focal-point calculation. Pixels reaching
-at least half the peak activation are grouped into connected regions, and the
-region with the greatest total saliency supplies the focal point. Confidence is
-the peak activation in the model's fused saliency map, clamped to `[0.0, 1.0]`.
+corner. EXIF orientation is applied before analysis. A YuNet face at or above
+the configured score threshold has priority, with the most prominent face's
+bounding-box center supplying the focal point. If no reliable face is found,
+the image is fitted within U²-Net's 320x320 input using neutral padding, without
+stretching or cropping. Padding is excluded from the calculation. Pixels
+reaching at least half the peak activation are grouped into connected regions,
+and the region with the greatest total saliency supplies the fallback point.
+
+`source` is `face` or `saliency`. `confidence` is the selected model's score:
+YuNet's face score for `face`, or the peak fused-map activation for `saliency`.
+Scores are clamped to `[0.0, 1.0]` but are not calibrated probabilities and
+should not be compared across sources. Face detection does not perform identity
+recognition. Blurred, obscured, or highly stylized faces may use the saliency
+fallback.
 
 Requests are limited to 10 MiB and decoded images to 20 megapixels. Separate
 upload and analysis admission limits bound buffered-body and decoded-image
-memory without allowing slow uploads to reserve inference capacity. The model
-is loaded once at startup and its shared inference session is reused safely
+memory without allowing slow uploads to reserve inference capacity. Both models
+are loaded once at startup and their inference sessions are reused safely
 across requests.
 
 ## Telemetry and shutdown
@@ -182,24 +198,27 @@ letters, digits, `_`, or `-` and is at most 64 characters. Logs never include
 uploaded image data, filenames, query strings, or request headers.
 
 Prometheus metrics are exposed at `/metrics`, including HTTP rates and latency,
-pipeline stage latency, active inference count, outcomes, cancellations, Go
-runtime statistics, process statistics, and build information. Keep this
-endpoint private at the ingress layer.
+pipeline stage latency, face-detection outcomes, selected gravity sources,
+active inference count, cancellations, Go runtime statistics, process
+statistics, and build information. Keep this endpoint private at the ingress
+layer.
 
 Every analysis has a configurable deadline. Cancellation propagates into ONNX
 Runtime and terminates that request's native inference without affecting other
 concurrent requests. On SIGINT or SIGTERM, readiness becomes false immediately,
 new analyses receive 503 with `Retry-After`, and active requests may finish for
 `SHUTDOWN_TIMEOUT`. Once the grace period expires, their contexts are cancelled,
-native inference is terminated, connections are closed, and the model is then
-released. Set the orchestrator termination grace period longer than
+native inference is terminated, connections are closed, and the model sessions
+are then released. Set the orchestrator termination grace period longer than
 `SHUTDOWN_TIMEOUT`.
 
 ## Model quality
 
-Full U²-Net fixes the person-in-room fixture previously missed by U²-NetP, but
-still misses two difficult scenes. See the [fixture evaluation](internal/testimages/testdata/README.md)
-for measured outputs and unchanged expected regions.
+YuNet prioritizes clear faces but intentionally falls back when its confidence
+is below the configured threshold. Full U²-Net fixes the person-in-room fixture
+previously missed by U²-NetP, but still misses two difficult scenes. See the
+[fixture evaluation](internal/testimages/testdata/README.md) for measured outputs
+and unchanged expected regions.
 
 ## Contributing
 

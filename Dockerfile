@@ -19,8 +19,10 @@ RUN mkdir -p /opt/onnxruntime \
 ADD --checksum=sha256:8d10d2f3bb75ae3b6d527c77944fc5e7dcd94b29809d47a739a7a728a912b491 --chmod=0444 \
     https://github.com/danielgatis/rembg/releases/download/v0.0.0/u2net.onnx /opt/models/u2net.onnx
 COPY models/u2net-int8.onnx /opt/models/u2net-int8.onnx
-COPY models/README.md models/U2NET_LICENSE /opt/models/
+COPY models/face_detection_yunet_2023mar.onnx /opt/models/face_detection_yunet_2023mar.onnx
+COPY models/README.md models/U2NET_LICENSE models/YUNET_LICENSE /opt/models/
 RUN echo "b340186f56660b6665e494aab912e5f8e9adbc2317181c77fd01aa226f06553b  /opt/models/u2net-int8.onnx" | sha256sum -c -
+RUN echo "8f2383e4dd3cfbb4553ea8718107fc0423210dc964f9f4280604804ed2552fa4  /opt/models/face_detection_yunet_2023mar.onnx" | sha256sum -c -
 
 WORKDIR /src
 COPY go.mod go.sum ./

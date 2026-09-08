@@ -13,14 +13,16 @@ import (
 )
 
 type telemetry struct {
-	registry        *prometheus.Registry
-	httpRequests    *prometheus.CounterVec
-	httpDuration    *prometheus.HistogramVec
-	httpActive      prometheus.Gauge
-	stageDuration   *prometheus.HistogramVec
-	analyses        *prometheus.CounterVec
-	inferenceActive prometheus.Gauge
-	cancellations   *prometheus.CounterVec
+	registry              *prometheus.Registry
+	httpRequests          *prometheus.CounterVec
+	httpDuration          *prometheus.HistogramVec
+	httpActive            prometheus.Gauge
+	stageDuration         *prometheus.HistogramVec
+	analyses              *prometheus.CounterVec
+	inferenceActive       prometheus.Gauge
+	cancellations         *prometheus.CounterVec
+	faceDetectionOutcomes *prometheus.CounterVec
+	gravitySources        *prometheus.CounterVec
 }
 
 func newTelemetry(modelPrecision string, maxConcurrentAnalyses int) *telemetry {
@@ -49,15 +51,24 @@ func newTelemetry(modelPrecision string, maxConcurrentAnalyses int) *telemetry {
 		}, []string{"outcome"}),
 		inferenceActive: prometheus.NewGauge(prometheus.GaugeOpts{
 			Namespace: "autogravity", Name: "inference_active",
-			Help: "ONNX inference calls currently running.",
+			Help: "Model inference pipelines currently running.",
 		}),
 		cancellations: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Namespace: "autogravity", Name: "cancellations_total",
 			Help: "Cancelled analyses by reason.",
 		}, []string{"reason"}),
+		faceDetectionOutcomes: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Namespace: "autogravity", Name: "face_detection_total",
+			Help: "Face-detection attempts by outcome.",
+		}, []string{"outcome"}),
+		gravitySources: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Namespace: "autogravity", Name: "gravity_sources_total",
+			Help: "Successful analyses by selected gravity source.",
+		}, []string{"source"}),
 	}
 	registry.MustRegister(t.httpRequests, t.httpDuration, t.httpActive, t.stageDuration,
-		t.analyses, t.inferenceActive, t.cancellations, prometheus.NewGoCollector(),
+		t.analyses, t.inferenceActive, t.cancellations, t.faceDetectionOutcomes,
+		t.gravitySources, prometheus.NewGoCollector(),
 		prometheus.NewProcessCollector(prometheus.ProcessCollectorOpts{}))
 	registry.MustRegister(prometheus.NewGaugeFunc(prometheus.GaugeOpts{
 		Namespace: "autogravity", Name: "build_info", Help: "Build and model configuration.",

@@ -11,7 +11,7 @@ the common development tasks:
 ```sh
 mise install
 mise run ci       # formatting, vet, race-enabled tests, and build
-mise run model    # download and verify U²-Net
+mise run model    # download and verify the ONNX models
 ```
 
 GitHub Actions runs `mise run ci` and validates the Docker image for both
@@ -34,19 +34,19 @@ Additional natural photographs cover a dog low in a portrait and two puppies in
 grass. A licensed panda eating bamboo is also included as a regression for a
 previously reported failure with a similar image.
 
-To also run the real U²-Net model through the HTTP handler:
+To also run the real YuNet and U²-Net models:
 
 ```sh
 export ONNXRUNTIME_LIB=/absolute/path/to/libonnxruntime.dylib
 make test-integration
 ```
 
-This downloads and verifies the model, then runs race-enabled tests including
-subject-location checks, mirrored-image consistency, and equivalent raw and
-multipart results. The integration suite requires a working runtime and model;
-it fails rather than silently skipping when they are missing. GitHub Actions
-installs the pinned runtime and runs this suite on every pull request and push
-to `main`. Default tests need neither the runtime nor network access.
+This downloads and verifies the models, then runs race-enabled tests including
+face and subject-location checks, mirrored-image consistency, and equivalent
+raw and multipart results. The integration suite requires a working runtime and
+models; it fails rather than silently skipping when they are missing. GitHub
+Actions installs the pinned runtime and runs this suite on every pull request
+and push to `main`. Default tests need neither the runtime nor network access.
 
 Integration tests follow `MODEL_PRECISION` (default `int8`) and honor explicit
 `MODEL_PATH` overrides. `make test-integration-fp32` tests the FP32 environment
@@ -110,8 +110,10 @@ reduce single-request latency when more CPU cores are available.
 
 ```text
 cmd/autogravity/       HTTP server and lifecycle
+internal/facedetection/ YuNet preprocessing, inference, and face selection
 internal/imageutil/    decoding, EXIF orientation, resize, normalization
+internal/ortenv/       shared ONNX Runtime lifecycle
 internal/saliency/     ONNX Runtime model session and inference
 internal/gravity/      saliency-weighted focal-point calculation
-models/                local model location (ONNX files are gitignored)
+models/                checked-in and downloaded model artifacts and licenses
 ```

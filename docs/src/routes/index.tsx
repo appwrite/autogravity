@@ -18,13 +18,13 @@ function DocsPage() {
           <span className="section-kicker">Overview</span>
           <h1 className="doc-h1">Focal points, as a service.</h1>
           <p className="doc-lead">
-            A small Go HTTP service that finds the main visual subject in an
-            image. It runs U²-Net with ONNX Runtime and returns the
-            weighted centroid of the strongest salient region as normalized X/Y coordinates. It never
-            crops, stores, or modifies the submitted image.
+            A small Go HTTP service that finds the best crop focus in an image.
+            It prioritizes confidently detected faces with YuNet, then falls
+            back to U²-Net saliency. It never crops, stores, identifies, or
+            modifies the submitted image.
           </p>
           <div className="pill-row">
-            <span className="pill">290–390 ms per image</span>
+            <span className="pill">Face-first · saliency fallback</span>
             <span className="pill">JPEG · PNG · WebP</span>
             <span className="pill">CPU-only</span>
           </div>
@@ -53,7 +53,7 @@ function DocsPage() {
           <SectionTitle
             kicker="Start"
             title="Install"
-            lead="Fastest path is Docker. The image downloads the verified U²-Net model and the CPU-only ONNX Runtime library during the build."
+            lead="Fastest path is Docker. The image includes verified YuNet and U²-Net models plus the CPU-only ONNX Runtime library."
           />
           <CodePanel label="Docker">
             <code>
@@ -69,7 +69,7 @@ function DocsPage() {
           <p className="doc-copy">
             Or build from source with Go 1.25 or newer.{' '}
             <InlineCode>make model</InlineCode> downloads and verifies the ONNX
-            model.
+            models.
           </p>
           <CodePanel label="Source">
             <code>
@@ -97,8 +97,18 @@ function DocsPage() {
             </div>
             <div className="data-table-row">
               <span className="accent">MODEL_PATH</span>
-              <span className="accent">models/u2net.onnx</span>
+              <span className="accent">unset</span>
               <span className="data-table-desc">U²-Net model path</span>
+            </div>
+            <div className="data-table-row">
+              <span className="accent">FACE_MODEL_PATH</span>
+              <span className="accent">models/face_detection_yunet_2023mar.onnx</span>
+              <span className="data-table-desc">YuNet model path</span>
+            </div>
+            <div className="data-table-row">
+              <span className="accent">FACE_SCORE_THRESHOLD</span>
+              <span className="accent">0.85</span>
+              <span className="data-table-desc">Minimum reliable face score</span>
             </div>
             <div className="data-table-row">
               <span className="accent">ONNXRUNTIME_LIB</span>
@@ -120,7 +130,7 @@ function DocsPage() {
           <HttpEndpoint
             method="POST"
             path="/analyze"
-            description="Returns the strongest salient region's weighted focal point as normalized coordinates."
+            description="Returns a prioritized face center or the strongest salient region's weighted focal point."
           />
 
           <div className="code-grid">
@@ -141,7 +151,9 @@ function DocsPage() {
                 <span className="num">0.37</span>{'\n'}
                 {'  '}{'}'},{'\n'}
                 {'  '}<span className="key">"confidence"</span>:{' '}
-                <span className="num">0.91</span>{'\n'}
+                <span className="num">0.91</span>,{'\n'}
+                {'  '}<span className="key">"source"</span>:{' '}
+                <span className="str">"face"</span>{'\n'}
                 {'}'}
               </code>
             </CodePanel>
@@ -182,17 +194,18 @@ function DocsPage() {
             <p className="doc-copy doc-copy--flush">
               Coordinates are in <InlineCode>[0.0, 1.0]</InlineCode>, measured
               from the oriented image&apos;s top-left corner. EXIF orientation is
-              applied before analysis. Images are fitted within the model&apos;s
-              320×320 input using neutral padding, without stretching or cropping.
-              Confidence is the peak activation in the model&apos;s fused saliency
-              map.
+              applied before analysis. A reliable face supplies its bounding-box
+              center; otherwise U²-Net supplies the saliency centroid. The{' '}
+              <InlineCode>source</InlineCode> field identifies which strategy was
+              selected. Confidence is that strategy&apos;s model score, not an
+              identity match or a calibrated probability.
             </p>
           </div>
 
           <HttpEndpoint
             method="GET"
             path="/healthz"
-            description='Returns 503 until the model is loaded, then 200 with {"status":"ok"}.'
+            description='Returns 503 until the models are loaded, then 200 with {"status":"ok"}.'
           />
         </section>
 
@@ -202,8 +215,8 @@ function DocsPage() {
             Requests are limited to 10 MiB and decoded images to 20 megapixels.
             Separate upload and analysis admission limits bound buffered-body and
             decoded-image memory without allowing slow uploads to reserve
-            inference capacity. The model is loaded once at startup and its
-            shared inference session is reused across requests.
+            inference capacity. Both models are loaded once at startup and their
+            inference sessions are reused across requests.
           </p>
         </section>
 
@@ -227,9 +240,10 @@ function DocsPage() {
             </div>
           </div>
           <p className="doc-footnote">
-            Apple M3 Pro, CPU-only ONNX Runtime 1.23.2, Go 1.25.14. Median of
-            five sequential benchmark samples. Performance varies with hardware
-            and input images.
+            Historical U²-Net fallback timings on Apple M3 Pro, CPU-only ONNX
+            Runtime 1.23.2, Go 1.25.14. Median of five sequential benchmark
+            samples. Face-selected requests skip U²-Net. Performance varies with
+            hardware and input images.
           </p>
         </section>
       </main>

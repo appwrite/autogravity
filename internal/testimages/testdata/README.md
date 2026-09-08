@@ -57,8 +57,15 @@ Observed original-image outputs on macOS arm64 with ONNX Runtime 1.23.2:
 | Pedestrian and dog | 0.2572, 0.4904 | 0.6766, 0.5457 | 0.9808 | Above expected region; reflection checks also fail |
 | Bird on branch | 0.5443, 0.6420 | 0.4112, 0.3939 | 0.9981 | Right of bird; reflected region also fails |
 
-Peak activation is the API's current `confidence` value; these examples show it
-is not a calibrated probability that the selected subject is correct.
+Peak activation is the API's `confidence` value when `source` is `saliency`;
+these examples show it is not a calibrated probability that the selected
+subject is correct.
+
+The person-in-room image also supplies the real-model YuNet integration case.
+At the default 0.85 threshold, its clear face is detected and moves the selected
+gravity point from the body's saliency centroid to the face bounding-box center.
+Blurred or obscured faces that do not meet the threshold continue through the
+saliency path.
 
 ## Panda regression
 

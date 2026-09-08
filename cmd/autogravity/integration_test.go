@@ -18,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	"autogravity/internal/facedetection"
 	"autogravity/internal/imageutil"
 	"autogravity/internal/saliency"
 	"autogravity/internal/testimages"
@@ -123,6 +124,46 @@ func TestConcurrentInferenceIsConsistent(t *testing.T) {
 		if want[i] != snapshot[i] {
 			t.Fatalf("returned output changed at %d after inference/Close", i)
 		}
+	}
+}
+
+func TestModelsShareRuntimeEnvironment(t *testing.T) {
+	library := os.Getenv("ONNXRUNTIME_LIB")
+	if library == "" {
+		t.Fatal("integration tests require ONNXRUNTIME_LIB")
+	}
+	saliencyPath := filepath.Join("..", "..", "models", "u2net-int8.onnx")
+	facePath := filepath.Join("..", "..", "models", "face_detection_yunet_2023mar.onnx")
+
+	saliencyModel, err := saliency.NewWithOptions(library, saliencyPath, saliency.Options{IntraOpThreads: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = saliencyModel.Close() })
+	faceModel, err := facedetection.NewWithOptions(library, facePath, facedetection.Options{IntraOpThreads: 1})
+	if err != nil {
+		_ = saliencyModel.Close()
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = faceModel.Close() })
+
+	img, err := imageutil.Decode(testimages.Read(t, "person-room.jpg"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if detections, err := faceModel.Detect(context.Background(), img); err != nil || len(detections) == 0 {
+		t.Fatalf("face detection = %+v, %v", detections, err)
+	}
+	if err := faceModel.Close(); err != nil {
+		t.Fatal(err)
+	}
+	// Closing one session must not unload the process-wide runtime while the
+	// saliency session still owns a reference.
+	if _, err := saliencyModel.Infer(context.Background(), make([]float32, 3*saliency.InputWidth*saliency.InputHeight)); err != nil {
+		t.Fatal(err)
+	}
+	if err := saliencyModel.Close(); err != nil {
+		t.Fatal(err)
 	}
 }
 
