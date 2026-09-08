@@ -32,6 +32,15 @@ func (contextAnalyzer) Infer(ctx context.Context, _ []float32) ([]float32, error
 	return nil, ctx.Err()
 }
 
+type cancelAfterAnalyzer struct{ cancel context.CancelFunc }
+
+func (a cancelAfterAnalyzer) Infer(_ context.Context, _ []float32) ([]float32, error) {
+	result := make([]float32, saliency.InputWidth*saliency.InputHeight)
+	result[len(result)/2] = 0.9
+	a.cancel()
+	return result, nil
+}
+
 func TestConfiguredModelPath(t *testing.T) {
 	for _, tc := range []struct {
 		name, precision, path, want string
@@ -273,6 +282,20 @@ func TestHandleAnalyzeDeadlineCancelsInference(t *testing.T) {
 	}
 }
 
+func TestHandleAnalyzeChecksCancellationAfterInference(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	app := newApplication(cancelAfterAnalyzer{cancel: cancel}, 1)
+	request := httptest.NewRequest(http.MethodPost, "/analyze", bytes.NewReader(testPNG(t))).WithContext(ctx)
+	request.Header.Set("Content-Type", "image/png")
+	response := httptest.NewRecorder()
+
+	app.handleAnalyze(response, request)
+
+	if response.Code != 499 {
+		t.Fatalf("status = %d, want 499; body = %s", response.Code, response.Body.String())
+	}
+}
+
 func TestDrainingRejectsAnalysisAndReadiness(t *testing.T) {
 	app := newApplication(&fakeAnalyzer{}, 1)
 	app.draining.Store(true)
@@ -309,6 +332,19 @@ func TestTelemetryPropagatesSafeRequestID(t *testing.T) {
 	handler.ServeHTTP(response, request)
 	if got := response.Header().Get("X-Request-ID"); got != "request_123" {
 		t.Fatalf("request ID = %q", got)
+	}
+}
+
+func TestTelemetryCoversUnmatchedRoutes(t *testing.T) {
+	tel := newTelemetry("int8", 1)
+	handler := tel.instrument("", http.NewServeMux())
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/missing", nil))
+	if response.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404", response.Code)
+	}
+	if response.Header().Get("X-Request-ID") == "" {
+		t.Fatal("unmatched response has no request ID")
 	}
 }
 

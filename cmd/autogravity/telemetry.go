@@ -99,6 +99,10 @@ func (w *statusRecorder) Write(data []byte) (int, error) {
 func (t *telemetry) instrument(route string, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		started := time.Now()
+		requestRoute := route
+		if requestRoute == "" {
+			requestRoute = telemetryRoute(r.URL.Path)
+		}
 		requestID := validRequestID(r.Header.Get("X-Request-ID"))
 		if requestID == "" {
 			requestID = newRequestID()
@@ -113,14 +117,23 @@ func (t *telemetry) instrument(route string, next http.Handler) http.Handler {
 				status = http.StatusOK
 			}
 			duration := time.Since(started)
-			t.httpRequests.WithLabelValues(route, r.Method, strconv.Itoa(status)).Inc()
-			t.httpDuration.WithLabelValues(route, r.Method).Observe(duration.Seconds())
+			t.httpRequests.WithLabelValues(requestRoute, r.Method, strconv.Itoa(status)).Inc()
+			t.httpDuration.WithLabelValues(requestRoute, r.Method).Observe(duration.Seconds())
 			slog.Info("request completed", "request_id", requestID, "method", r.Method,
-				"route", route, "status", status, "response_bytes", recorder.bytes,
+				"route", requestRoute, "status", status, "response_bytes", recorder.bytes,
 				"duration_ms", duration.Milliseconds())
 		}()
 		next.ServeHTTP(recorder, r)
 	})
+}
+
+func telemetryRoute(path string) string {
+	switch path {
+	case "/analyze", "/livez", "/readyz", "/healthz", "/metrics":
+		return path
+	default:
+		return "unmatched"
+	}
 }
 
 func validRequestID(value string) string {

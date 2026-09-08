@@ -115,15 +115,15 @@ func run() error {
 	app := newApplication(model, maxConcurrentAnalyses)
 	app.analysisTimeout = analysisTimeout
 	mux := http.NewServeMux()
-	mux.Handle("/analyze", app.telemetry.instrument("/analyze", http.HandlerFunc(app.handleAnalyze)))
-	mux.Handle("/livez", app.telemetry.instrument("/livez", http.HandlerFunc(app.handleLivez)))
-	mux.Handle("/readyz", app.telemetry.instrument("/readyz", http.HandlerFunc(app.handleReadyz)))
-	mux.Handle("/healthz", app.telemetry.instrument("/healthz", http.HandlerFunc(app.handleReadyz)))
+	mux.HandleFunc("/analyze", app.handleAnalyze)
+	mux.HandleFunc("/livez", app.handleLivez)
+	mux.HandleFunc("/readyz", app.handleReadyz)
+	mux.HandleFunc("/healthz", app.handleReadyz)
 	mux.Handle("/metrics", app.telemetry.handler())
 
 	server := &http.Server{
 		Addr:              addr,
-		Handler:           mux,
+		Handler:           app.telemetry.instrument("", mux),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       analysisTimeout,
 		WriteTimeout:      analysisTimeout + 5*time.Second,
@@ -332,6 +332,11 @@ func (app *application) handleAnalyze(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "image analysis failed")
 		return
 	}
+	if ctx.Err() != nil {
+		observeCancellation()
+		writeContextError(w, ctx)
+		return
+	}
 	focalStarted := time.Now()
 	point, confidence, err := gravity.FromSaliencyRegion(
 		mapData,
@@ -346,6 +351,11 @@ func (app *application) handleAnalyze(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	app.telemetry.stageDuration.WithLabelValues("focal_point").Observe(time.Since(focalStarted).Seconds())
+	if ctx.Err() != nil {
+		observeCancellation()
+		writeContextError(w, ctx)
+		return
+	}
 
 	writeJSON(w, http.StatusOK, analyzeResponse{Gravity: point, Confidence: confidence})
 }
