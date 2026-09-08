@@ -1,6 +1,8 @@
 package saliency
 
 import (
+	"context"
+	"errors"
 	"strings"
 	"testing"
 )
@@ -26,10 +28,19 @@ func TestNewRejectsNegativeIntraOpThreadsBeforeRuntimeAccess(t *testing.T) {
 	}
 }
 
+func TestInferRejectsCancelledContextBeforeRuntimeAccess(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err := (&Model{}).Infer(ctx, make([]float32, 3*InputWidth*InputHeight))
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("Infer() error = %v, want context.Canceled", err)
+	}
+}
+
 func TestInferRejectsInvalidTensorBeforeRuntimeAccess(t *testing.T) {
 	model := &Model{}
 	for _, length := range []int{0, 1, InputWidth * InputHeight, 3*InputWidth*InputHeight - 1, 3*InputWidth*InputHeight + 1} {
-		output, err := model.Infer(make([]float32, length))
+		output, err := model.Infer(context.Background(), make([]float32, length))
 		if output != nil || err == nil || !strings.Contains(err.Error(), "invalid input tensor length") {
 			t.Fatalf("Infer(%d values) = %v, %v", length, output, err)
 		}

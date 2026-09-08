@@ -11,6 +11,8 @@ ADD --checksum=sha256:7c63c73560ed76b1fac6cff8204ffe34fe180e70d6582b5332ec094810
 FROM onnxruntime-${TARGETARCH} AS onnxruntime
 
 FROM golang:1.25-bookworm AS builder
+ARG VERSION=dev
+ARG COMMIT=unknown
 COPY --from=onnxruntime /onnxruntime.tgz /tmp/onnxruntime.tgz
 RUN mkdir -p /opt/onnxruntime \
     && tar -xzf /tmp/onnxruntime.tgz --strip-components=1 -C /opt/onnxruntime
@@ -24,7 +26,9 @@ WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-RUN CGO_ENABLED=1 go build -trimpath -ldflags="-s -w" -o /out/autogravity ./cmd/autogravity
+RUN CGO_ENABLED=1 go build -trimpath \
+    -ldflags="-s -w -X main.version=${VERSION} -X main.commit=${COMMIT}" \
+    -o /out/autogravity ./cmd/autogravity
 
 FROM debian:bookworm-slim
 RUN apt-get update \

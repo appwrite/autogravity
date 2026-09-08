@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -17,7 +18,7 @@ import (
 
 type analyzerFunc func([]float32) ([]float32, error)
 
-func (f analyzerFunc) Infer(input []float32) ([]float32, error) { return f(input) }
+func (f analyzerFunc) Infer(_ context.Context, input []float32) ([]float32, error) { return f(input) }
 
 func fixtureRequest(t *testing.T, fixture testimages.Fixture, multipartBody bool, data []byte) *http.Request {
 	t.Helper()

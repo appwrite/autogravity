@@ -2,6 +2,7 @@
 package saliency
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"sync"
@@ -91,7 +92,13 @@ func NewWithOptions(runtimeLibraryPath, modelPath string, options Options) (*Mod
 }
 
 // Infer returns the model's 320x320 fused saliency map.
-func (m *Model) Infer(input []float32) ([]float32, error) {
+func (m *Model) Infer(ctx context.Context, input []float32) ([]float32, error) {
+	if ctx == nil {
+		return nil, errors.New("inference context is required")
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if len(input) != 3*InputWidth*InputHeight {
 		return nil, fmt.Errorf("invalid input tensor length: got %d", len(input))
 	}
@@ -125,11 +132,37 @@ func (m *Model) Infer(input []float32) ([]float32, error) {
 	}
 	defer outputTensor.Destroy()
 
-	if err := m.session.Run(
+	runOptions, err := ort.NewRunOptions()
+	if err != nil {
+		return nil, fmt.Errorf("create inference run options: %w", err)
+	}
+	defer runOptions.Destroy()
+
+	// RunOptions belongs to this inference call. A shared instance would let a
+	// cancelled request terminate unrelated concurrent requests.
+	watcherDone := make(chan struct{})
+	stopWatcher := make(chan struct{})
+	go func() {
+		defer close(watcherDone)
+		select {
+		case <-ctx.Done():
+			_ = runOptions.Terminate()
+		case <-stopWatcher:
+		}
+	}()
+
+	runErr := m.session.RunWithOptions(
 		[]ort.Value{inputTensor},
 		[]ort.Value{outputTensor},
-	); err != nil {
-		return nil, fmt.Errorf("run saliency model: %w", err)
+		runOptions,
+	)
+	close(stopWatcher)
+	<-watcherDone // Ensure Terminate cannot race with Destroy.
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return nil, ctxErr
+	}
+	if runErr != nil {
+		return nil, fmt.Errorf("run saliency model: %w", runErr)
 	}
 
 	return result, nil

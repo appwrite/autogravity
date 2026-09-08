@@ -4,7 +4,9 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"image/png"
 	"math"
@@ -14,6 +16,7 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
+	"time"
 
 	"autogravity/internal/imageutil"
 	"autogravity/internal/saliency"
@@ -72,9 +75,14 @@ func TestConcurrentInferenceIsConsistent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want, err := model.Infer(input)
+	want, err := model.Infer(context.Background(), input)
 	if err != nil {
 		t.Fatal(err)
+	}
+	cancelCtx, cancel := context.WithTimeout(context.Background(), time.Millisecond)
+	defer cancel()
+	if _, err := model.Infer(cancelCtx, input); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("cancelled inference error = %v, want context deadline exceeded", err)
 	}
 
 	const workers = 4
@@ -84,7 +92,7 @@ func TestConcurrentInferenceIsConsistent(t *testing.T) {
 		wait.Add(1)
 		go func() {
 			defer wait.Done()
-			got, err := model.Infer(input)
+			got, err := model.Infer(context.Background(), input)
 			if err != nil {
 				errors <- err
 				return
@@ -105,7 +113,7 @@ func TestConcurrentInferenceIsConsistent(t *testing.T) {
 	// Infer returns independently owned Go memory, even after another call
 	// uses different input and the native runtime has been destroyed.
 	snapshot := append([]float32(nil), want...)
-	if _, err := model.Infer(make([]float32, len(input))); err != nil {
+	if _, err := model.Infer(context.Background(), make([]float32, len(input))); err != nil {
 		t.Fatal(err)
 	}
 	if err := model.Close(); err != nil {
