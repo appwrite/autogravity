@@ -1,6 +1,6 @@
-import centerPortrait from '../../../internal/testimages/testdata/generated-face-center.jpg'
-import blurredPortrait from '../../../internal/testimages/testdata/generated-no-face-blurred.jpg'
-import multiplePortraits from '../../../internal/testimages/testdata/generated-faces-primary.jpg'
+const centerPortrait = '/face-priority/clear-portrait.jpg'
+const multiplePortraits = '/face-priority/multiple-faces.jpg'
+const blurredPortrait = '/face-priority/blurred-face.jpg'
 
 type Tone = 'before' | 'face' | 'fallback'
 
