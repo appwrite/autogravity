@@ -27,3 +27,23 @@ Both architectures default to `MODEL_PRECISION=int8`. Set `MODEL_PRECISION=fp32`
 to use the bundled FP32 model. An explicit `MODEL_PATH` overrides precision.
 There is no automatic fallback on model errors or architecture-based selection.
 The reported throughput gains were measured on x86-64, not ARM64.
+
+## Face detection
+
+`face_detection_yunet_2023mar.onnx` is the fixed 640x640
+[YuNet face detector](https://github.com/opencv/opencv_zoo/tree/f12e12798e8314f7c074a6656816c048dcc95b7a/models/face_detection_yunet)
+from OpenCV Zoo, pinned to upstream commit
+`f12e12798e8314f7c074a6656816c048dcc95b7a`. The checked-in artifact is 232,589
+bytes with SHA-256:
+
+```text
+8f2383e4dd3cfbb4553ea8718107fc0423210dc964f9f4280604804ed2552fa4
+```
+
+The artifact is redistributed under the MIT license in `YUNET_LICENSE`. Images
+are aspect-fitted into its input with black padding and no stretching. YuNet
+runs before U²-Net; a face at or above `FACE_SCORE_THRESHOLD` supplies the
+focal point, while images without a reliable face retain the saliency result.
+The 0.85 default retains the licensed clear-face fixture while rejecting a
+0.81 false positive on the two-puppy regression image. Deliberately blurred or
+obscured faces may not reach the threshold.

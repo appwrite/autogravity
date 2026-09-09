@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"image"
 	"image/color"
 	"image/png"
@@ -16,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"autogravity/internal/facedetection"
 	"autogravity/internal/saliency"
 )
 
@@ -26,6 +28,12 @@ type fakeAnalyzer struct {
 }
 
 type contextAnalyzer struct{}
+
+type faceAnalyzerFunc func(context.Context, image.Image) ([]facedetection.Detection, error)
+
+func (f faceAnalyzerFunc) Detect(ctx context.Context, img image.Image) ([]facedetection.Detection, error) {
+	return f(ctx, img)
+}
 
 func (contextAnalyzer) Infer(ctx context.Context, _ []float32) ([]float32, error) {
 	<-ctx.Done()
@@ -62,6 +70,30 @@ func TestConfiguredModelPath(t *testing.T) {
 			}
 			if got != tc.want {
 				t.Fatalf("got %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestUnitEnvFloat(t *testing.T) {
+	tests := []struct {
+		name, value string
+		want        float64
+		invalid     bool
+	}{
+		{name: "default", want: 0.85},
+		{name: "configured", value: "0.65", want: 0.65},
+		{name: "zero", value: "0", invalid: true},
+		{name: "above one", value: "1.01", invalid: true},
+		{name: "NaN", value: "NaN", invalid: true},
+		{name: "not a number", value: "nope", invalid: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Setenv("FACE_SCORE_THRESHOLD", test.value)
+			got, err := unitEnvFloat("FACE_SCORE_THRESHOLD", 0.85)
+			if (err != nil) != test.invalid || got != test.want {
+				t.Fatalf("unitEnvFloat() = %v, %v; want %v, invalid=%v", got, err, test.want, test.invalid)
 			}
 		})
 	}
@@ -137,6 +169,100 @@ func TestHandleAnalyzeRawImage(t *testing.T) {
 	}
 	if body.Confidence < 0 || body.Confidence > 1 {
 		t.Fatalf("confidence is not normalized: %v", body.Confidence)
+	}
+	if body.Source != "saliency" {
+		t.Fatalf("source = %q, want saliency", body.Source)
+	}
+}
+
+func TestHandleAnalyzePrioritizesFace(t *testing.T) {
+	saliencyCalls := 0
+	model := analyzerFunc(func([]float32) ([]float32, error) {
+		saliencyCalls++
+		return nil, errors.New("saliency should not run")
+	})
+	face := facedetection.Detection{
+		Bounds:     facedetection.Box{MinX: 0.3, MinY: 0.1, MaxX: 0.7, MaxY: 0.5},
+		Confidence: 0.93,
+	}
+	faces := faceAnalyzerFunc(func(context.Context, image.Image) ([]facedetection.Detection, error) {
+		return []facedetection.Detection{face}, nil
+	})
+	app := newApplicationWithFace(model, faces, 2)
+	request := httptest.NewRequest(http.MethodPost, "/analyze", bytes.NewReader(testPNG(t)))
+	request.Header.Set("Content-Type", "image/png")
+	response := httptest.NewRecorder()
+
+	app.handleAnalyze(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d: %s", response.Code, response.Body.String())
+	}
+	var body analyzeResponse
+	if err := json.NewDecoder(response.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Gravity.X != 0.5 || body.Gravity.Y != 0.3 {
+		t.Fatalf("gravity = %+v, want face center", body.Gravity)
+	}
+	if body.Confidence != face.Confidence || body.Source != "face" {
+		t.Fatalf("response = %+v, want face source", body)
+	}
+	if saliencyCalls != 0 {
+		t.Fatalf("saliency calls = %d, want zero", saliencyCalls)
+	}
+}
+
+func TestHandleAnalyzeUsesSaliencyFallback(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		faces faceAnalyzerFunc
+	}{
+		{
+			name: "no face",
+			faces: func(context.Context, image.Image) ([]facedetection.Detection, error) {
+				return nil, nil
+			},
+		},
+		{
+			name: "face detector error",
+			faces: func(context.Context, image.Image) ([]facedetection.Detection, error) {
+				return nil, errors.New("private face detector error")
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			saliencyCalls := 0
+			model := analyzerFunc(func([]float32) ([]float32, error) {
+				saliencyCalls++
+				result := make([]float32, saliency.InputWidth*saliency.InputHeight)
+				result[len(result)/2] = 0.75
+				return result, nil
+			})
+			app := newApplicationWithFace(model, test.faces, 2)
+			request := httptest.NewRequest(http.MethodPost, "/analyze", bytes.NewReader(testPNG(t)))
+			request.Header.Set("Content-Type", "image/png")
+			response := httptest.NewRecorder()
+
+			app.handleAnalyze(response, request)
+
+			if response.Code != http.StatusOK {
+				t.Fatalf("status = %d: %s", response.Code, response.Body.String())
+			}
+			var body analyzeResponse
+			if err := json.NewDecoder(response.Body).Decode(&body); err != nil {
+				t.Fatal(err)
+			}
+			if body.Source != "saliency" || body.Confidence != 0.75 {
+				t.Fatalf("response = %+v, want saliency fallback", body)
+			}
+			if saliencyCalls != 1 {
+				t.Fatalf("saliency calls = %d, want one", saliencyCalls)
+			}
+			if bytes.Contains(response.Body.Bytes(), []byte("private face detector error")) {
+				t.Fatal("private face detector error exposed")
+			}
+		})
 	}
 }
 
@@ -279,6 +405,30 @@ func TestHandleAnalyzeDeadlineCancelsInference(t *testing.T) {
 	}
 	if len(app.uploadSlots) != 0 || len(app.analysisSlots) != 0 {
 		t.Fatal("admission slots leaked after cancellation")
+	}
+}
+
+func TestHandleAnalyzeDeadlineCancelsFaceDetection(t *testing.T) {
+	faces := faceAnalyzerFunc(func(ctx context.Context, _ image.Image) ([]facedetection.Detection, error) {
+		<-ctx.Done()
+		return nil, ctx.Err()
+	})
+	app := newApplicationWithFace(analyzerFunc(func([]float32) ([]float32, error) {
+		t.Fatal("saliency ran after face-detection timeout")
+		return nil, nil
+	}), faces, 1)
+	app.analysisTimeout = 10 * time.Millisecond
+	request := httptest.NewRequest(http.MethodPost, "/analyze", bytes.NewReader(testPNG(t)))
+	request.Header.Set("Content-Type", "image/png")
+	response := httptest.NewRecorder()
+
+	app.handleAnalyze(response, request)
+
+	if response.Code != http.StatusGatewayTimeout {
+		t.Fatalf("status = %d, want 504; body = %s", response.Code, response.Body.String())
+	}
+	if len(app.uploadSlots) != 0 || len(app.analysisSlots) != 0 {
+		t.Fatal("admission slots leaked after face-detection cancellation")
 	}
 }
 

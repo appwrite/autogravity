@@ -14,6 +14,7 @@ export const SITE = {
 export const NAV = {
   start: [
     { href: '#overview', label: 'Overview' },
+    { href: '#face-priority', label: 'Face priority' },
     { href: '#preview', label: 'Storage preview' },
     { href: '#install', label: 'Install' },
     { href: '#config', label: 'Configuration' },

@@ -57,8 +57,45 @@ Observed original-image outputs on macOS arm64 with ONNX Runtime 1.23.2:
 | Pedestrian and dog | 0.2572, 0.4904 | 0.6766, 0.5457 | 0.9808 | Above expected region; reflection checks also fail |
 | Bird on branch | 0.5443, 0.6420 | 0.4112, 0.3939 | 0.9981 | Right of bird; reflected region also fails |
 
-Peak activation is the API's current `confidence` value; these examples show it
-is not a calibrated probability that the selected subject is correct.
+Peak activation is the API's `confidence` value when `source` is `saliency`;
+these examples show it is not a calibrated probability that the selected
+subject is correct.
+
+The person-in-room image also supplies the real-model YuNet integration case.
+At the default 0.85 threshold, its clear face is detected and moves the selected
+gravity point from the body's saliency centroid to the face bounding-box center.
+Blurred or obscured faces that do not meet the threshold continue through the
+saliency path.
+
+## Generated face-priority matrix
+
+These ten fictional scenes were created with OpenAI's built-in image generation
+tool on 2026-09-08 specifically for regression testing. They were exported as
+JPEG at quality 82 with an 800-pixel maximum dimension; together they occupy
+about 1 MB. The exact prompts and transformation details are recorded in
+[`GENERATED.md`](GENERATED.md).
+
+The expected source and face regions were selected by visual inspection before
+running either ONNX model. Regions are normalized to the original image. The
+integration suite checks every image in its original and horizontally mirrored
+orientation, verifies `source`, and checks the primary face location when a face
+is expected.
+
+| Preview | Expected source | Primary face region (x; y) | Purpose |
+| --- | --- | --- | --- |
+| <img src="generated-face-center.jpg" width="180" alt="One centered adult facing the camera"> | face | 0.40–0.60; 0.15–0.40 | Baseline centered portrait |
+| <img src="generated-face-left.jpg" width="180" alt="One adult on the left with negative space"> | face | 0.16–0.38; 0.10–0.40 | Left placement and negative space |
+| <img src="generated-face-right.jpg" width="180" alt="One adult on the right with negative space"> | face | 0.67–0.88; 0.10–0.42 | Right placement and negative space |
+| <img src="generated-face-three-quarter.jpg" width="180" alt="Adult in a three-quarter profile"> | face | 0.24–0.54; 0.14–0.48 | Non-frontal head angle |
+| <img src="generated-face-occluded.jpg" width="140" alt="Adult wearing a beanie, glasses, and scarf"> | face | 0.22–0.74; 0.10–0.52 | Glasses, hat, and minor chin occlusion |
+| <img src="generated-face-low-light.jpg" width="180" alt="Adult face in dim mixed lighting"> | face | 0.43–0.76; 0.10–0.50 | Low light and uneven illumination |
+| <img src="generated-faces-primary.jpg" width="180" alt="Large foreground face and small background face"> | face | 0.13–0.44; 0.10–0.48 | Primary-face selection by prominence |
+| <img src="generated-no-face-landscape.jpg" width="180" alt="Mountain lake and canoe without people"> | saliency | — | No-person false-positive control |
+| <img src="generated-no-face-back-facing.jpg" width="180" alt="Hiker facing away at a coastal overlook"> | saliency | — | Person present without a visible face |
+| <img src="generated-no-face-blurred.jpg" width="180" alt="Adult whose entire face is strongly blurred"> | saliency | — | Anonymized-face fallback matching the reported case |
+
+All depicted people are generated, fictional adults. These fixtures test face
+detection only; they are not used for identity recognition or biometric matching.
 
 ## Panda regression
 

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"sync"
 
+	"autogravity/internal/ortenv"
 	ort "github.com/yalue/onnxruntime_go"
 )
 
@@ -17,9 +18,10 @@ const (
 
 // Model owns a single reusable ONNX Runtime session.
 type Model struct {
-	mu      sync.RWMutex
-	session *ort.DynamicAdvancedSession
-	closed  bool
+	mu              sync.RWMutex
+	session         *ort.DynamicAdvancedSession
+	environmentHeld bool
+	closed          bool
 }
 
 // Options controls the ONNX Runtime session used by the model.
@@ -48,16 +50,15 @@ func NewWithOptions(runtimeLibraryPath, modelPath string, options Options) (*Mod
 		return nil, errors.New("ONNX intra-op threads must be at least zero")
 	}
 
-	ort.SetSharedLibraryPath(runtimeLibraryPath)
-	if err := ort.InitializeEnvironment(); err != nil {
+	if err := ortenv.Acquire(runtimeLibraryPath); err != nil {
 		return nil, fmt.Errorf("initialize ONNX Runtime: %w", err)
 	}
 	loaded := false
 	defer func() {
 		if !loaded {
 			// Registered before sessionOptions.Destroy: options must be freed
-			// before destroying the environment unloads the shared library.
-			_ = ort.DestroyEnvironment()
+			// before the final reference unloads the shared library.
+			_ = ortenv.Release()
 		}
 	}()
 
@@ -88,7 +89,7 @@ func NewWithOptions(runtimeLibraryPath, modelPath string, options Options) (*Mod
 	}
 
 	loaded = true
-	return &Model{session: session}, nil
+	return &Model{session: session, environmentHeld: true}, nil
 }
 
 // Infer returns the model's 320x320 fused saliency map.
@@ -168,7 +169,7 @@ func (m *Model) Infer(ctx context.Context, input []float32) ([]float32, error) {
 	return result, nil
 }
 
-// Close releases the model session and ONNX Runtime environment.
+// Close releases the model session and its shared ONNX Runtime reference.
 func (m *Model) Close() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -177,11 +178,16 @@ func (m *Model) Close() error {
 	}
 	m.closed = true
 	var closeErrors []error
-	if err := m.session.Destroy(); err != nil {
-		closeErrors = append(closeErrors, fmt.Errorf("destroy model session: %w", err))
+	if m.session != nil {
+		if err := m.session.Destroy(); err != nil {
+			closeErrors = append(closeErrors, fmt.Errorf("destroy model session: %w", err))
+		}
 	}
-	if err := ort.DestroyEnvironment(); err != nil {
-		closeErrors = append(closeErrors, fmt.Errorf("destroy ONNX Runtime: %w", err))
+	if m.environmentHeld {
+		m.environmentHeld = false
+		if err := ortenv.Release(); err != nil {
+			closeErrors = append(closeErrors, fmt.Errorf("release ONNX Runtime: %w", err))
+		}
 	}
 	return errors.Join(closeErrors...)
 }

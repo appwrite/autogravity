@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"image"
 	"io"
 	"log/slog"
+	"math"
 	"mime"
 	"net"
 	"net/http"
@@ -19,6 +21,7 @@ import (
 	"syscall"
 	"time"
 
+	"autogravity/internal/facedetection"
 	"autogravity/internal/gravity"
 	"autogravity/internal/imageutil"
 	"autogravity/internal/saliency"
@@ -28,6 +31,7 @@ const (
 	maxRequestBytes        = 10 << 20 // 10 MiB, including multipart overhead.
 	maxConcurrentUploads   = 4        // Bounds buffered bodies without reserving inference.
 	defaultIntraOpThreads  = 1        // Avoid N requests multiplying ONNX worker threads.
+	defaultFaceModelPath   = "models/face_detection_yunet_2023mar.onnx"
 	defaultAnalysisTimeout = 30 * time.Second
 	defaultShutdownTimeout = 30 * time.Second
 )
@@ -43,8 +47,13 @@ type analyzer interface {
 	Infer(context.Context, []float32) ([]float32, error)
 }
 
+type faceAnalyzer interface {
+	Detect(context.Context, image.Image) ([]facedetection.Detection, error)
+}
+
 type application struct {
 	model           analyzer
+	faceModel       faceAnalyzer
 	uploadSlots     chan struct{}
 	analysisSlots   chan struct{}
 	inputBuffers    chan []float32
@@ -56,6 +65,7 @@ type application struct {
 type analyzeResponse struct {
 	Gravity    gravity.Point `json:"gravity"`
 	Confidence float64       `json:"confidence"`
+	Source     string        `json:"source"`
 }
 
 type healthResponse struct {
@@ -81,6 +91,11 @@ func run() error {
 		return fmt.Errorf("startup: %w", err)
 	}
 	runtimePath := os.Getenv("ONNXRUNTIME_LIB")
+	faceModelPath := envOrDefault("FACE_MODEL_PATH", defaultFaceModelPath)
+	faceScoreThreshold, err := unitEnvFloat("FACE_SCORE_THRESHOLD", facedetection.DefaultScoreThreshold)
+	if err != nil {
+		return fmt.Errorf("startup: %w", err)
+	}
 	maxConcurrentAnalyses, err := positiveEnvInt("MAX_CONCURRENT_ANALYSES", runtime.GOMAXPROCS(0))
 	if err != nil {
 		return fmt.Errorf("startup: %w", err)
@@ -104,7 +119,7 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("startup: %w", err)
 	}
-	slog.Info("model loaded", "path", modelPath, "architecture", runtime.GOARCH,
+	slog.Info("saliency model loaded", "path", modelPath, "architecture", runtime.GOARCH,
 		"analysis_slots", maxConcurrentAnalyses, "intra_op_threads", intraOpThreads)
 	defer func() {
 		if err := model.Close(); err != nil {
@@ -112,7 +127,21 @@ func run() error {
 		}
 	}()
 
-	app := newApplication(model, maxConcurrentAnalyses)
+	faceModel, err := facedetection.NewWithOptions(runtimePath, faceModelPath, facedetection.Options{
+		ScoreThreshold: faceScoreThreshold,
+		IntraOpThreads: intraOpThreads,
+	})
+	if err != nil {
+		return fmt.Errorf("startup: %w", err)
+	}
+	slog.Info("face model loaded", "path", faceModelPath, "score_threshold", faceScoreThreshold)
+	defer func() {
+		if err := faceModel.Close(); err != nil {
+			slog.Error("failed to close face model", "error", err)
+		}
+	}()
+
+	app := newApplicationWithFace(model, faceModel, maxConcurrentAnalyses)
 	app.analysisTimeout = analysisTimeout
 	mux := http.NewServeMux()
 	mux.HandleFunc("/analyze", app.handleAnalyze)
@@ -282,7 +311,7 @@ func (app *application) handleAnalyze(w http.ResponseWriter, r *http.Request) {
 	<-app.uploadSlots
 	uploadSlotHeld = false
 
-	preprocessStarted := time.Now()
+	decodeStarted := time.Now()
 	img, err := imageutil.Decode(data)
 	if err != nil {
 		switch {
@@ -296,7 +325,36 @@ func (app *application) handleAnalyze(w http.ResponseWriter, r *http.Request) {
 		outcome = "invalid_image"
 		return
 	}
+	app.telemetry.stageDuration.WithLabelValues("decode").Observe(time.Since(decodeStarted).Seconds())
 
+	if app.faceModel != nil {
+		faceStarted := time.Now()
+		app.telemetry.inferenceActive.Inc()
+		faces, faceErr := app.faceModel.Detect(ctx, img)
+		app.telemetry.inferenceActive.Dec()
+		app.telemetry.stageDuration.WithLabelValues("face_detection").Observe(time.Since(faceStarted).Seconds())
+		if ctx.Err() != nil {
+			observeCancellation()
+			writeContextError(w, ctx)
+			return
+		}
+		if faceErr != nil {
+			app.telemetry.faceDetectionOutcomes.WithLabelValues("error").Inc()
+			slog.Error("face detection failed; using saliency fallback", "error", faceErr)
+		} else if face, ok := facedetection.Primary(faces); ok {
+			app.telemetry.faceDetectionOutcomes.WithLabelValues("selected").Inc()
+			x, y := face.Center()
+			app.telemetry.gravitySources.WithLabelValues("face").Inc()
+			writeJSON(w, http.StatusOK, analyzeResponse{
+				Gravity: gravity.Point{X: x, Y: y}, Confidence: face.Confidence, Source: "face",
+			})
+			return
+		} else {
+			app.telemetry.faceDetectionOutcomes.WithLabelValues("none").Inc()
+		}
+	}
+
+	preprocessStarted := time.Now()
 	var input []float32
 	select {
 	case input = <-app.inputBuffers:
@@ -357,12 +415,18 @@ func (app *application) handleAnalyze(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, analyzeResponse{Gravity: point, Confidence: confidence})
+	app.telemetry.gravitySources.WithLabelValues("saliency").Inc()
+	writeJSON(w, http.StatusOK, analyzeResponse{Gravity: point, Confidence: confidence, Source: "saliency"})
 }
 
 func newApplication(model analyzer, maxConcurrentAnalyses int) *application {
+	return newApplicationWithFace(model, nil, maxConcurrentAnalyses)
+}
+
+func newApplicationWithFace(model analyzer, faceModel faceAnalyzer, maxConcurrentAnalyses int) *application {
 	return &application{
 		model:           model,
+		faceModel:       faceModel,
 		uploadSlots:     make(chan struct{}, maxConcurrentUploads),
 		analysisSlots:   make(chan struct{}, maxConcurrentAnalyses),
 		inputBuffers:    make(chan []float32, maxConcurrentAnalyses),
@@ -467,6 +531,18 @@ func positiveEnvDuration(key string, fallback time.Duration) (time.Duration, err
 	parsed, err := time.ParseDuration(value)
 	if err != nil || parsed <= 0 {
 		return 0, fmt.Errorf("%s must be a positive duration, got %q", key, value)
+	}
+	return parsed, nil
+}
+
+func unitEnvFloat(key string, fallback float64) (float64, error) {
+	value := strings.TrimSpace(os.Getenv(key))
+	if value == "" {
+		return fallback, nil
+	}
+	parsed, err := strconv.ParseFloat(value, 64)
+	if err != nil || math.IsNaN(parsed) || math.IsInf(parsed, 0) || parsed <= 0 || parsed > 1 {
+		return 0, fmt.Errorf("%s must be greater than zero and at most one, got %q", key, value)
 	}
 	return parsed, nil
 }

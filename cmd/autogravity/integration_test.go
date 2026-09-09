@@ -18,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	"autogravity/internal/facedetection"
 	"autogravity/internal/imageutil"
 	"autogravity/internal/saliency"
 	"autogravity/internal/testimages"
@@ -41,6 +42,124 @@ func TestAnalyzeRealModel(t *testing.T) {
 		{"puppies.jpg", 0.30, 0.70, 0.35, 0.75},
 		{"panda-bamboo.jpg", 0.20, 0.80, 0.25, 0.85},
 	})
+}
+
+// facePriorityCase bounds are visually annotated around the intended primary
+// face before inference. Cases without a visible face exercise saliency fallback.
+type facePriorityCase struct {
+	name                   string
+	wantSource             string
+	minX, maxX, minY, maxY float64
+}
+
+func TestAnalyzeGeneratedFacePriorityMatrix(t *testing.T) {
+	library := os.Getenv("ONNXRUNTIME_LIB")
+	if library == "" {
+		t.Fatal("integration tests require ONNXRUNTIME_LIB")
+	}
+	saliencyPath := os.Getenv("MODEL_PATH")
+	if saliencyPath == "" {
+		selected, err := configuredModelPath()
+		if err != nil {
+			t.Fatal(err)
+		}
+		saliencyPath = filepath.Join("..", "..", selected)
+	}
+	facePath := os.Getenv("FACE_MODEL_PATH")
+	if facePath == "" {
+		facePath = filepath.Join("..", "..", "models", "face_detection_yunet_2023mar.onnx")
+	}
+
+	saliencyModel, err := saliency.NewWithOptions(library, saliencyPath, saliency.Options{IntraOpThreads: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := saliencyModel.Close(); err != nil {
+			t.Error(err)
+		}
+	})
+	faceModel, err := facedetection.NewWithOptions(library, facePath, facedetection.Options{IntraOpThreads: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := faceModel.Close(); err != nil {
+			t.Error(err)
+		}
+	})
+	app := newApplicationWithFace(saliencyModel, faceModel, 2)
+
+	cases := []facePriorityCase{
+		{"generated-face-center.jpg", "face", 0.40, 0.60, 0.15, 0.40},
+		{"generated-face-left.jpg", "face", 0.16, 0.38, 0.10, 0.40},
+		{"generated-face-right.jpg", "face", 0.67, 0.88, 0.10, 0.42},
+		{"generated-face-three-quarter.jpg", "face", 0.24, 0.54, 0.14, 0.48},
+		{"generated-face-occluded.jpg", "face", 0.22, 0.74, 0.10, 0.52},
+		{"generated-face-low-light.jpg", "face", 0.43, 0.76, 0.10, 0.50},
+		{"generated-faces-primary.jpg", "face", 0.13, 0.44, 0.10, 0.48},
+		{"generated-no-face-landscape.jpg", "saliency", 0, 0, 0, 0},
+		{"generated-no-face-back-facing.jpg", "saliency", 0, 0, 0, 0},
+		{"generated-no-face-blurred.jpg", "saliency", 0, 0, 0, 0},
+	}
+
+	analyze := func(t *testing.T, name string, data []byte) analyzeResponse {
+		t.Helper()
+		response := httptest.NewRecorder()
+		app.handleAnalyze(response, fixtureRequest(t, testimages.Fixture{Name: name, ContentType: "image/jpeg"}, false, data))
+		if response.Code != http.StatusOK {
+			t.Fatalf("status = %d: %s", response.Code, response.Body.String())
+		}
+		var result analyzeResponse
+		if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil {
+			t.Fatal(err)
+		}
+		return result
+	}
+
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			data := testimages.Read(t, test.name)
+			img, err := imageutil.Decode(data)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var flipped bytes.Buffer
+			if err := png.Encode(&flipped, imaging.FlipH(img)); err != nil {
+				t.Fatal(err)
+			}
+
+			original := analyze(t, test.name, data)
+			mirrored := analyze(t, "mirrored.png", flipped.Bytes())
+			t.Logf("original=%+v mirrored=%+v", original, mirrored)
+			for orientation, result := range map[string]analyzeResponse{
+				"original": original,
+				"mirrored": mirrored,
+			} {
+				if result.Source != test.wantSource {
+					t.Errorf("%s source = %q, want %q", orientation, result.Source, test.wantSource)
+				}
+				if result.Confidence < 0 || result.Confidence > 1 {
+					t.Errorf("%s confidence = %.4f", orientation, result.Confidence)
+				}
+			}
+			if test.wantSource != "face" {
+				return
+			}
+			if original.Gravity.X < test.minX || original.Gravity.X > test.maxX ||
+				original.Gravity.Y < test.minY || original.Gravity.Y > test.maxY {
+				t.Errorf("original primary face outside manually annotated region: %+v", original)
+			}
+			if mirrored.Gravity.X < 1-test.maxX || mirrored.Gravity.X > 1-test.minX ||
+				mirrored.Gravity.Y < test.minY || mirrored.Gravity.Y > test.maxY {
+				t.Errorf("mirrored primary face outside reflected annotation: %+v", mirrored)
+			}
+			if math.Abs(mirrored.Gravity.X-(1-original.Gravity.X)) > 0.04 ||
+				math.Abs(mirrored.Gravity.Y-original.Gravity.Y) > 0.04 {
+				t.Errorf("face selection is not reflection-consistent: original=%+v mirrored=%+v", original, mirrored)
+			}
+		})
+	}
 }
 
 func TestConcurrentInferenceIsConsistent(t *testing.T) {
@@ -123,6 +242,46 @@ func TestConcurrentInferenceIsConsistent(t *testing.T) {
 		if want[i] != snapshot[i] {
 			t.Fatalf("returned output changed at %d after inference/Close", i)
 		}
+	}
+}
+
+func TestModelsShareRuntimeEnvironment(t *testing.T) {
+	library := os.Getenv("ONNXRUNTIME_LIB")
+	if library == "" {
+		t.Fatal("integration tests require ONNXRUNTIME_LIB")
+	}
+	saliencyPath := filepath.Join("..", "..", "models", "u2net-int8.onnx")
+	facePath := filepath.Join("..", "..", "models", "face_detection_yunet_2023mar.onnx")
+
+	saliencyModel, err := saliency.NewWithOptions(library, saliencyPath, saliency.Options{IntraOpThreads: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = saliencyModel.Close() })
+	faceModel, err := facedetection.NewWithOptions(library, facePath, facedetection.Options{IntraOpThreads: 1})
+	if err != nil {
+		_ = saliencyModel.Close()
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = faceModel.Close() })
+
+	img, err := imageutil.Decode(testimages.Read(t, "person-room.jpg"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if detections, err := faceModel.Detect(context.Background(), img); err != nil || len(detections) == 0 {
+		t.Fatalf("face detection = %+v, %v", detections, err)
+	}
+	if err := faceModel.Close(); err != nil {
+		t.Fatal(err)
+	}
+	// Closing one session must not unload the process-wide runtime while the
+	// saliency session still owns a reference.
+	if _, err := saliencyModel.Infer(context.Background(), make([]float32, 3*saliency.InputWidth*saliency.InputHeight)); err != nil {
+		t.Fatal(err)
+	}
+	if err := saliencyModel.Close(); err != nil {
+		t.Fatal(err)
 	}
 }
 
