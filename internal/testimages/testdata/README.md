@@ -6,6 +6,7 @@ The five format fixtures below are copied unchanged from `golang.org/x/image` v0
 | Local name | Upstream name | Purpose |
 | --- | --- | --- |
 | rose.png | yellow_rose.png | Landscape flower photograph, PNG with transparency |
+| rose.gif | yellow_rose.gif | GIF conversion of yellow_rose.png |
 | rose-lossless.webp | yellow_rose.lossless.webp | Lossless WebP of the flower |
 | rose-lossy.webp | yellow_rose.lossy.webp | Lossy WebP of the flower |
 | rose-alpha.webp | yellow_rose.lossy-with-alpha.webp | Lossy WebP with alpha |

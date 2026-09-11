@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"image"
+	_ "image/gif"
 	_ "image/jpeg"
 	_ "image/png"
 	"math"
@@ -21,7 +22,7 @@ var (
 	ErrImageTooLarge     = errors.New("image dimensions are too large")
 )
 
-// Decode decodes JPEG, PNG, or WebP data and applies any EXIF orientation.
+// Decode decodes JPEG, PNG, WebP, or GIF data and applies any EXIF orientation.
 func Decode(data []byte) (image.Image, error) {
 	config, format, err := image.DecodeConfig(bytes.NewReader(data))
 	if err != nil {
@@ -30,7 +31,7 @@ func Decode(data []byte) (image.Image, error) {
 		}
 		return nil, fmt.Errorf("decode image header: %w", err)
 	}
-	if format != "jpeg" && format != "png" && format != "webp" {
+	if format != "jpeg" && format != "png" && format != "webp" && format != "gif" {
 		return nil, fmt.Errorf("%w: %s", ErrUnsupportedFormat, format)
 	}
 	if config.Width <= 0 || config.Height <= 0 ||
