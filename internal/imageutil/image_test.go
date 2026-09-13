@@ -120,6 +120,10 @@ func TestDecodeAnimatedGIF(t *testing.T) {
 	if got := img.Bounds().Size(); got != (image.Point{X: 2, Y: 2}) {
 		t.Fatalf("decoded size = %v, want 2x2", got)
 	}
+	r, g, b, a := img.At(0, 0).RGBA()
+	if r != 0 || g != 0 || b != 0 || a != 0xffff {
+		t.Fatalf("decoded pixel at (0, 0) = (%d, %d, %d, %d), want frame 0 black", r, g, b, a)
+	}
 }
 
 func TestDecodeAppliesEXIFOrientation(t *testing.T) {
