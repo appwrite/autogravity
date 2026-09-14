@@ -186,7 +186,7 @@ recognition. Blurred, obscured, or highly stylized faces may use the saliency
 fallback.
 
 Requests default to a 10 MiB body limit, configured with `MAX_REQUEST_SIZE`
-(`10MiB`, `10485760`, or another positive byte size), and decoded images to 20
+(`10MiB`, `10485760`, or another positive byte size), and decoded images to 48
 megapixels. Separate upload and analysis admission limits bound buffered-body
 and decoded-image memory without allowing slow uploads to reserve inference
 capacity. Both models are loaded once at startup and their inference sessions
