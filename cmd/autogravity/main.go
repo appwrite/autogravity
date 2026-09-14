@@ -430,7 +430,7 @@ func newApplication(model analyzer, maxConcurrentAnalyses int) *application {
 }
 
 func newApplicationWithFace(model analyzer, faceModel faceAnalyzer, maxConcurrentAnalyses int) *application {
-	maxRequestBytes := defaultMaxRequestBytes
+	maxRequestBytes := int64(defaultMaxRequestBytes)
 	if parsed, err := positiveEnvBytes("MAX_REQUEST_SIZE", defaultMaxRequestBytes); err == nil {
 		maxRequestBytes = parsed
 	}
