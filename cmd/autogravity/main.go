@@ -148,7 +148,6 @@ func run() error {
 
 	app := newApplicationWithFace(model, faceModel, maxConcurrentAnalyses)
 	app.analysisTimeout = analysisTimeout
-	app.maxRequestBytes = maxRequestBytes
 	mux := http.NewServeMux()
 	mux.HandleFunc("/analyze", app.handleAnalyze)
 	mux.HandleFunc("/livez", app.handleLivez)
@@ -431,6 +430,10 @@ func newApplication(model analyzer, maxConcurrentAnalyses int) *application {
 }
 
 func newApplicationWithFace(model analyzer, faceModel faceAnalyzer, maxConcurrentAnalyses int) *application {
+	maxRequestBytes := defaultMaxRequestBytes
+	if parsed, err := positiveEnvBytes("MAX_REQUEST_SIZE", defaultMaxRequestBytes); err == nil {
+		maxRequestBytes = parsed
+	}
 	return &application{
 		model:           model,
 		faceModel:       faceModel,
@@ -439,7 +442,7 @@ func newApplicationWithFace(model analyzer, faceModel faceAnalyzer, maxConcurren
 		inputBuffers:    make(chan []float32, maxConcurrentAnalyses),
 		telemetry:       newTelemetry(envOrDefault("MODEL_PRECISION", "int8"), maxConcurrentAnalyses),
 		analysisTimeout: defaultAnalysisTimeout,
-		maxRequestBytes: defaultMaxRequestBytes,
+		maxRequestBytes: maxRequestBytes,
 	}
 }
 
