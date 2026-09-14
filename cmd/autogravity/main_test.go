@@ -301,7 +301,7 @@ func TestHandleAnalyzeErrors(t *testing.T) {
 		{name: "method", method: http.MethodGet, wantStatus: http.StatusMethodNotAllowed},
 		{name: "unsupported format", method: http.MethodPost, contentType: "application/octet-stream", body: []byte("not an image"), wantStatus: http.StatusUnsupportedMediaType},
 		{name: "empty body", method: http.MethodPost, contentType: "image/png", wantStatus: http.StatusBadRequest},
-		{name: "request too large", method: http.MethodPost, contentType: "image/png", body: make([]byte, maxRequestBytes+1), wantStatus: http.StatusRequestEntityTooLarge},
+		{name: "request too large", method: http.MethodPost, contentType: "image/png", body: make([]byte, defaultMaxRequestBytes+1), wantStatus: http.StatusRequestEntityTooLarge},
 	}
 
 	for _, tt := range tests {
@@ -369,6 +369,39 @@ func TestPositiveEnvInt(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestHandleAnalyzeConfiguredRequestLimit(t *testing.T) {
+	t.Run("byte count", func(t *testing.T) {
+		t.Setenv("MAX_REQUEST_SIZE", "64")
+		status := analyzeStatus(t, make([]byte, 65))
+		if status != http.StatusRequestEntityTooLarge {
+			t.Fatalf("status = %d, want 413", status)
+		}
+	})
+	t.Run("kib suffix rejects oversize", func(t *testing.T) {
+		t.Setenv("MAX_REQUEST_SIZE", "1KiB")
+		status := analyzeStatus(t, make([]byte, 2000))
+		if status != http.StatusRequestEntityTooLarge {
+			t.Fatalf("status = %d, want 413", status)
+		}
+	})
+	t.Run("kib suffix accepts small image", func(t *testing.T) {
+		t.Setenv("MAX_REQUEST_SIZE", "1KiB")
+		status := analyzeStatus(t, testPNG(t))
+		if status != http.StatusOK {
+			t.Fatalf("status = %d, want 200", status)
+		}
+	})
+}
+
+func analyzeStatus(t *testing.T, body []byte) int {
+	t.Helper()
+	request := httptest.NewRequest(http.MethodPost, "/analyze", bytes.NewReader(body))
+	request.Header.Set("Content-Type", "image/png")
+	response := httptest.NewRecorder()
+	newApplication(&fakeAnalyzer{}, 1).handleAnalyze(response, request)
+	return response.Code
 }
 
 func TestPositiveEnvDuration(t *testing.T) {

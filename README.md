@@ -47,6 +47,7 @@ The server listens on `:8080`. These environment variables are available:
 | `MAX_CONCURRENT_ANALYSES` | available CPUs | Maximum images decoded and inferred concurrently |
 | `ONNX_INTRA_OP_THREADS` | `1` | CPU threads used within each ONNX operator |
 | `ANALYSIS_TIMEOUT` | `30s` | Maximum lifetime of an analysis, including upload and queue waits |
+| `MAX_REQUEST_SIZE` | `10MiB` | Maximum `/analyze` request body, including multipart overhead |
 | `SHUTDOWN_TIMEOUT` | `30s` | Grace period for active requests during shutdown |
 
 ## Performance
@@ -184,11 +185,12 @@ should not be compared across sources. Face detection does not perform identity
 recognition. Blurred, obscured, or highly stylized faces may use the saliency
 fallback.
 
-Requests are limited to 10 MiB and decoded images to 20 megapixels. Separate
-upload and analysis admission limits bound buffered-body and decoded-image
-memory without allowing slow uploads to reserve inference capacity. Both models
-are loaded once at startup and their inference sessions are reused safely
-across requests.
+Requests default to a 10 MiB body limit, configured with `MAX_REQUEST_SIZE`
+(`10MiB`, `10485760`, or another positive byte size), and decoded images to 20
+megapixels. Separate upload and analysis admission limits bound buffered-body
+and decoded-image memory without allowing slow uploads to reserve inference
+capacity. Both models are loaded once at startup and their inference sessions
+are reused safely across requests.
 
 ## Telemetry and shutdown
 

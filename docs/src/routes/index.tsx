@@ -132,6 +132,13 @@ function DocsPage() {
                 Full ONNX Runtime shared-library path
               </span>
             </div>
+            <div className="data-table-row">
+              <span className="accent">MAX_REQUEST_SIZE</span>
+              <span className="accent">10MiB</span>
+              <span className="data-table-desc">
+                Maximum /analyze request body, including multipart overhead
+              </span>
+            </div>
           </div>
         </section>
 
@@ -227,7 +234,11 @@ function DocsPage() {
         <section id="limits" className="doc-section">
           <SectionTitle kicker="Reference" title="Limits" />
           <p className="doc-copy">
-            Requests are limited to 10 MiB and decoded images to 20 megapixels.
+            Requests default to a 10 MiB body limit (
+            <InlineCode>MAX_REQUEST_SIZE</InlineCode>) and decoded images to 20
+            megapixels. Set <InlineCode>MAX_REQUEST_SIZE</InlineCode> to a
+            positive byte count such as <InlineCode>10MiB</InlineCode> or{' '}
+            <InlineCode>10485760</InlineCode>.
             Separate upload and analysis admission limits bound buffered-body and
             decoded-image memory without allowing slow uploads to reserve
             inference capacity. Both models are loaded once at startup and their
