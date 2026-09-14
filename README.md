@@ -140,7 +140,7 @@ curl -sS http://localhost:8080/readyz
 service is accepting analyses and returns 503 as soon as graceful shutdown
 starts. `/healthz` remains a compatibility alias for `/readyz`.
 
-Send a JPEG, PNG, or WebP image as a multipart `image` field:
+Send a JPEG, PNG, WebP, or GIF image as a multipart `image` field:
 
 ```sh
 curl -sS -X POST http://localhost:8080/analyze \

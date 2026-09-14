@@ -25,7 +25,7 @@ Run tests with:
 make test
 ```
 
-The default suite uses checked-in photographs in JPEG, PNG, and lossy,
+The default suite uses checked-in photographs in JPEG, PNG, GIF, and lossy,
 lossless, and transparent WebP formats. It checks decoding, all eight EXIF
 orientations, normalization, letterbox padding, raw and multipart uploads,
 corrupt images, and recovery after analysis failures. Fixtures and their

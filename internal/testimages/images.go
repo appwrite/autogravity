@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-//go:embed testdata/*.png testdata/*.jpg testdata/*.webp
+//go:embed testdata/*.png testdata/*.jpg testdata/*.webp testdata/*.gif
 var files embed.FS
 
 type Fixture struct {
@@ -22,6 +22,7 @@ var All = []Fixture{
 	{"rose-lossless.webp", "image/webp", image.Pt(400, 301), image.Rect(0, 39, 320, 280)},
 	{"rose-lossy.webp", "image/webp", image.Pt(400, 301), image.Rect(0, 39, 320, 280)},
 	{"rose-alpha.webp", "image/webp", image.Pt(400, 301), image.Rect(0, 39, 320, 280)},
+	{"rose.gif", "image/gif", image.Pt(400, 301), image.Rect(0, 39, 320, 280)},
 	{"portrait.jpg", "image/jpeg", image.Pt(280, 360), image.Rect(35, 0, 284, 320)},
 }
 

@@ -8,6 +8,7 @@ import (
 	"hash/crc32"
 	"image"
 	"image/color"
+	"image/gif"
 	"image/jpeg"
 	"testing"
 )
@@ -78,6 +79,50 @@ func TestDecodeWebP(t *testing.T) {
 	}
 	if got := img.Bounds().Size(); got != (image.Point{X: 1, Y: 1}) {
 		t.Fatalf("decoded size = %v, want 1x1", got)
+	}
+}
+
+func TestDecodeGIF(t *testing.T) {
+	data, err := base64.StdEncoding.DecodeString(
+		"R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	img, err := Decode(data)
+	if err != nil {
+		t.Fatalf("Decode() error = %v", err)
+	}
+	if got := img.Bounds().Size(); got != (image.Point{X: 1, Y: 1}) {
+		t.Fatalf("decoded size = %v, want 1x1", got)
+	}
+}
+
+func TestDecodeAnimatedGIF(t *testing.T) {
+	frame1 := image.NewPaletted(image.Rect(0, 0, 2, 2), color.Palette{color.Black, color.White})
+	frame2 := image.NewPaletted(image.Rect(0, 0, 2, 2), color.Palette{color.Black, color.White})
+	frame2.SetColorIndex(0, 0, 1)
+
+	anim := &gif.GIF{
+		Image: []*image.Paletted{frame1, frame2},
+		Delay: []int{10, 10},
+	}
+	var buf bytes.Buffer
+	if err := gif.EncodeAll(&buf, anim); err != nil {
+		t.Fatal(err)
+	}
+
+	img, err := Decode(buf.Bytes())
+	if err != nil {
+		t.Fatalf("Decode() error = %v", err)
+	}
+	if got := img.Bounds().Size(); got != (image.Point{X: 2, Y: 2}) {
+		t.Fatalf("decoded size = %v, want 2x2", got)
+	}
+	r, g, b, a := img.At(0, 0).RGBA()
+	if r != 0 || g != 0 || b != 0 || a != 0xffff {
+		t.Fatalf("decoded pixel at (0, 0) = (%d, %d, %d, %d), want frame 0 black", r, g, b, a)
 	}
 }
 
