@@ -235,7 +235,7 @@ function DocsPage() {
           <SectionTitle kicker="Reference" title="Limits" />
           <p className="doc-copy">
             Requests default to a 10 MiB body limit (
-            <InlineCode>MAX_REQUEST_SIZE</InlineCode>) and decoded images to 100
+            <InlineCode>MAX_REQUEST_SIZE</InlineCode>) and decoded images to 25
             megapixels. Set <InlineCode>MAX_REQUEST_SIZE</InlineCode> to a
             positive byte count such as <InlineCode>10MiB</InlineCode> or{' '}
             <InlineCode>10485760</InlineCode>.
