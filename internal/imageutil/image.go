@@ -15,7 +15,10 @@ import (
 	_ "golang.org/x/image/webp"
 )
 
-const MaxPixels = 20_000_000
+// MaxPixels is the decoded width*height ceiling. 40 megapixels covers common
+// 24 MP camera photographs (for example 6000x4000) while still rejecting
+// decompression bombs before pixels are allocated.
+const MaxPixels = 40_000_000
 
 var (
 	ErrUnsupportedFormat = errors.New("unsupported image format")

@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"autogravity/internal/facedetection"
+	"autogravity/internal/imageutil"
 	"autogravity/internal/saliency"
 )
 
@@ -302,6 +303,7 @@ func TestHandleAnalyzeErrors(t *testing.T) {
 		{name: "unsupported format", method: http.MethodPost, contentType: "application/octet-stream", body: []byte("not an image"), wantStatus: http.StatusUnsupportedMediaType},
 		{name: "empty body", method: http.MethodPost, contentType: "image/png", wantStatus: http.StatusBadRequest},
 		{name: "request too large", method: http.MethodPost, contentType: "image/png", body: make([]byte, maxRequestBytes+1), wantStatus: http.StatusRequestEntityTooLarge},
+		{name: "11 MiB body is within limit", method: http.MethodPost, contentType: "image/png", body: make([]byte, 11<<20), wantStatus: http.StatusUnsupportedMediaType},
 	}
 
 	for _, tt := range tests {
@@ -316,6 +318,21 @@ func TestHandleAnalyzeErrors(t *testing.T) {
 				t.Fatalf("status = %d, want %d; body = %s", response.Code, tt.wantStatus, response.Body.String())
 			}
 		})
+	}
+}
+
+func TestProductionPhotographFitsLimits(t *testing.T) {
+	const (
+		productionPNGBytes = 28_026_017
+		productionWidth    = 6000
+		productionHeight   = 4000
+	)
+	if maxRequestBytes < productionPNGBytes {
+		t.Fatalf("maxRequestBytes = %d, production photograph is %d bytes", maxRequestBytes, productionPNGBytes)
+	}
+	pixels := int64(productionWidth) * int64(productionHeight)
+	if pixels > imageutil.MaxPixels {
+		t.Fatalf("MaxPixels = %d, production photograph is %d pixels", imageutil.MaxPixels, pixels)
 	}
 }
 

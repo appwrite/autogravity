@@ -184,7 +184,7 @@ should not be compared across sources. Face detection does not perform identity
 recognition. Blurred, obscured, or highly stylized faces may use the saliency
 fallback.
 
-Requests are limited to 10 MiB and decoded images to 20 megapixels. Separate
+Requests are limited to 32 MiB and decoded images to 40 megapixels. Separate
 upload and analysis admission limits bound buffered-body and decoded-image
 memory without allowing slow uploads to reserve inference capacity. Both models
 are loaded once at startup and their inference sessions are reused safely

@@ -28,7 +28,7 @@ import (
 )
 
 const (
-	maxRequestBytes        = 10 << 20 // 10 MiB, including multipart overhead.
+	maxRequestBytes        = 32 << 20 // 32 MiB, including multipart overhead.
 	maxConcurrentUploads   = 4        // Bounds buffered bodies without reserving inference.
 	defaultIntraOpThreads  = 1        // Avoid N requests multiplying ONNX worker threads.
 	defaultFaceModelPath   = "models/face_detection_yunet_2023mar.onnx"
@@ -290,7 +290,7 @@ func (app *application) handleAnalyze(w http.ResponseWriter, r *http.Request) {
 		outcome = "invalid_request"
 		var tooLarge *http.MaxBytesError
 		if errors.As(err, &tooLarge) {
-			writeError(w, http.StatusRequestEntityTooLarge, "image exceeds the 10 MiB request limit")
+			writeError(w, http.StatusRequestEntityTooLarge, fmt.Sprintf("image exceeds the %d MiB request limit", maxRequestBytes>>20))
 			return
 		}
 		writeError(w, http.StatusBadRequest, err.Error())
