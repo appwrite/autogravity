@@ -153,14 +153,14 @@ func TestDecodeRejectsUnknownFormat(t *testing.T) {
 }
 
 func TestDecodeRejectsExcessivePixelCount(t *testing.T) {
-	_, err := Decode(oversizedPNGHeader(5_001, 5_000))
+	_, err := Decode(oversizedPNGHeader(8_001, 6_000))
 	if !errors.Is(err, ErrImageTooLarge) {
 		t.Fatalf("Decode() error = %v, want ErrImageTooLarge", err)
 	}
 }
 
-func TestDecodeAcceptsSixThousandByFourThousandImage(t *testing.T) {
-	source := image.NewGray(image.Rect(0, 0, 6_000, 4_000))
+func TestDecodeAcceptsFortyFiveMegapixelImage(t *testing.T) {
+	source := image.NewGray(image.Rect(0, 0, 7_500, 6_000))
 	var encoded bytes.Buffer
 	if err := png.Encode(&encoded, source); err != nil {
 		t.Fatal(err)

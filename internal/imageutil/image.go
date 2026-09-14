@@ -15,7 +15,7 @@ import (
 	_ "golang.org/x/image/webp"
 )
 
-const MaxPixels = 25_000_000
+const MaxPixels = 48_000_000
 
 var (
 	ErrUnsupportedFormat = errors.New("unsupported image format")
