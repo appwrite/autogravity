@@ -28,7 +28,7 @@ import (
 )
 
 const (
-	maxRequestBytes        = 10 << 20 // 10 MiB, including multipart overhead.
+	defaultMaxRequestBytes = 10 << 20 // 10 MiB, including multipart overhead.
 	maxConcurrentUploads   = 4        // Bounds buffered bodies without reserving inference.
 	defaultIntraOpThreads  = 1        // Avoid N requests multiplying ONNX worker threads.
 	defaultFaceModelPath   = "models/face_detection_yunet_2023mar.onnx"
@@ -59,6 +59,7 @@ type application struct {
 	inputBuffers    chan []float32
 	telemetry       *telemetry
 	analysisTimeout time.Duration
+	maxRequestBytes int64
 	draining        atomic.Bool
 }
 
@@ -112,6 +113,10 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("startup: %w", err)
 	}
+	maxRequestBytes, err := positiveEnvBytes("MAX_REQUEST_SIZE", defaultMaxRequestBytes)
+	if err != nil {
+		return fmt.Errorf("startup: %w", err)
+	}
 
 	model, err := saliency.NewWithOptions(runtimePath, modelPath, saliency.Options{
 		IntraOpThreads: intraOpThreads,
@@ -143,6 +148,7 @@ func run() error {
 
 	app := newApplicationWithFace(model, faceModel, maxConcurrentAnalyses)
 	app.analysisTimeout = analysisTimeout
+	app.maxRequestBytes = maxRequestBytes
 	mux := http.NewServeMux()
 	mux.HandleFunc("/analyze", app.handleAnalyze)
 	mux.HandleFunc("/livez", app.handleLivez)
@@ -167,7 +173,7 @@ func run() error {
 	defer signal.Stop(shutdownSignals)
 	serverErrors := make(chan error, 1)
 	go func() {
-		slog.Info("listening", "address", addr)
+		slog.Info("listening", "address", addr, "max_request_bytes", maxRequestBytes)
 		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			serverErrors <- err
 		}
@@ -278,7 +284,7 @@ func (app *application) handleAnalyze(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 
-	r.Body = http.MaxBytesReader(w, r.Body, maxRequestBytes)
+	r.Body = http.MaxBytesReader(w, r.Body, app.maxRequestBytes)
 	defer r.Body.Close()
 	data, err := readImage(r)
 	if err != nil {
@@ -290,7 +296,8 @@ func (app *application) handleAnalyze(w http.ResponseWriter, r *http.Request) {
 		outcome = "invalid_request"
 		var tooLarge *http.MaxBytesError
 		if errors.As(err, &tooLarge) {
-			writeError(w, http.StatusRequestEntityTooLarge, "image exceeds the 10 MiB request limit")
+			writeError(w, http.StatusRequestEntityTooLarge,
+				fmt.Sprintf("image exceeds the %s request limit", formatByteSize(app.maxRequestBytes)))
 			return
 		}
 		writeError(w, http.StatusBadRequest, err.Error())
@@ -432,6 +439,7 @@ func newApplicationWithFace(model analyzer, faceModel faceAnalyzer, maxConcurren
 		inputBuffers:    make(chan []float32, maxConcurrentAnalyses),
 		telemetry:       newTelemetry(envOrDefault("MODEL_PRECISION", "int8"), maxConcurrentAnalyses),
 		analysisTimeout: defaultAnalysisTimeout,
+		maxRequestBytes: defaultMaxRequestBytes,
 	}
 }
 
@@ -533,6 +541,71 @@ func positiveEnvDuration(key string, fallback time.Duration) (time.Duration, err
 		return 0, fmt.Errorf("%s must be a positive duration, got %q", key, value)
 	}
 	return parsed, nil
+}
+
+func positiveEnvBytes(key string, fallback int64) (int64, error) {
+	value := strings.TrimSpace(os.Getenv(key))
+	if value == "" {
+		return fallback, nil
+	}
+	parsed, err := parseByteSize(value)
+	if err != nil {
+		return 0, fmt.Errorf("%s must be a positive byte size such as 10485760 or 10MiB, got %q", key, value)
+	}
+	return parsed, nil
+}
+
+func parseByteSize(value string) (int64, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return 0, errors.New("empty byte size")
+	}
+	upper := strings.ToUpper(value)
+	for _, unit := range []struct {
+		suffix string
+		bytes  int64
+	}{
+		{"GIB", 1 << 30},
+		{"MIB", 1 << 20},
+		{"KIB", 1 << 10},
+		{"GB", 1_000_000_000},
+		{"MB", 1_000_000},
+		{"KB", 1_000},
+		{"B", 1},
+	} {
+		if !strings.HasSuffix(upper, unit.suffix) {
+			continue
+		}
+		number := strings.TrimSpace(value[:len(value)-len(unit.suffix)])
+		parsed, err := strconv.ParseInt(number, 10, 64)
+		if err != nil || parsed < 1 {
+			return 0, fmt.Errorf("invalid byte size %q", value)
+		}
+		if parsed > math.MaxInt64/unit.bytes {
+			return 0, fmt.Errorf("byte size %q overflows", value)
+		}
+		return parsed * unit.bytes, nil
+	}
+	parsed, err := strconv.ParseInt(value, 10, 64)
+	if err != nil || parsed < 1 {
+		return 0, fmt.Errorf("invalid byte size %q", value)
+	}
+	return parsed, nil
+}
+
+func formatByteSize(n int64) string {
+	switch {
+	case n <= 0:
+		return fmt.Sprintf("%d bytes", n)
+	case n%(1<<30) == 0:
+		return fmt.Sprintf("%d GiB", n>>30)
+	case n%(1<<20) == 0:
+		return fmt.Sprintf("%d MiB", n>>20)
+	case n%(1<<10) == 0:
+		return fmt.Sprintf("%d KiB", n>>10)
+	default:
+		return fmt.Sprintf("%d bytes", n)
+	}
 }
 
 func unitEnvFloat(key string, fallback float64) (float64, error) {

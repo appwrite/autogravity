@@ -12,6 +12,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -301,7 +302,7 @@ func TestHandleAnalyzeErrors(t *testing.T) {
 		{name: "method", method: http.MethodGet, wantStatus: http.StatusMethodNotAllowed},
 		{name: "unsupported format", method: http.MethodPost, contentType: "application/octet-stream", body: []byte("not an image"), wantStatus: http.StatusUnsupportedMediaType},
 		{name: "empty body", method: http.MethodPost, contentType: "image/png", wantStatus: http.StatusBadRequest},
-		{name: "request too large", method: http.MethodPost, contentType: "image/png", body: make([]byte, maxRequestBytes+1), wantStatus: http.StatusRequestEntityTooLarge},
+		{name: "request too large", method: http.MethodPost, contentType: "image/png", body: make([]byte, defaultMaxRequestBytes+1), wantStatus: http.StatusRequestEntityTooLarge},
 	}
 
 	for _, tt := range tests {
@@ -368,6 +369,67 @@ func TestPositiveEnvInt(t *testing.T) {
 				t.Fatalf("positiveEnvInt() = %d, %v; want %d, bad=%v", got, err, tt.want, tt.bad)
 			}
 		})
+	}
+}
+
+func TestHandleAnalyzeConfiguredRequestLimit(t *testing.T) {
+	app := newApplication(&fakeAnalyzer{}, 1)
+	app.maxRequestBytes = 64
+	request := httptest.NewRequest(http.MethodPost, "/analyze", bytes.NewReader(make([]byte, 65)))
+	request.Header.Set("Content-Type", "image/png")
+	response := httptest.NewRecorder()
+
+	app.handleAnalyze(response, request)
+
+	if response.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("status = %d, want 413; body = %s", response.Code, response.Body.String())
+	}
+	if !strings.Contains(response.Body.String(), "64 bytes") {
+		t.Fatalf("error = %s, want configured 64-byte limit", response.Body.String())
+	}
+}
+
+func TestPositiveEnvBytes(t *testing.T) {
+	const key = "TEST_REQUEST_SIZE"
+	for _, tt := range []struct {
+		name  string
+		value string
+		want  int64
+		bad   bool
+	}{
+		{name: "unset", want: defaultMaxRequestBytes},
+		{name: "bytes", value: "1024", want: 1024},
+		{name: "kib", value: "2KiB", want: 2048},
+		{name: "mib", value: "10MiB", want: 10 << 20},
+		{name: "mib with space", value: "10 MiB", want: 10 << 20},
+		{name: "lowercase mib", value: " 10mib ", want: 10 << 20},
+		{name: "mb", value: "1MB", want: 1_000_000},
+		{name: "zero", value: "0", bad: true},
+		{name: "negative", value: "-1", bad: true},
+		{name: "invalid", value: "large", bad: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv(key, tt.value)
+			got, err := positiveEnvBytes(key, defaultMaxRequestBytes)
+			if (err != nil) != tt.bad || got != tt.want {
+				t.Fatalf("positiveEnvBytes() = %d, %v; want %d, bad=%v", got, err, tt.want, tt.bad)
+			}
+		})
+	}
+}
+
+func TestFormatByteSize(t *testing.T) {
+	for _, tt := range []struct {
+		n    int64
+		want string
+	}{
+		{10 << 20, "10 MiB"},
+		{2048, "2 KiB"},
+		{64, "64 bytes"},
+	} {
+		if got := formatByteSize(tt.n); got != tt.want {
+			t.Fatalf("formatByteSize(%d) = %q, want %q", tt.n, got, tt.want)
+		}
 	}
 }
 
