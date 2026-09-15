@@ -32,7 +32,9 @@ corrupt images, and recovery after analysis failures. Fixtures and their
 source licenses live in [the fixture gallery](internal/testimages/testdata/README.md).
 Additional natural photographs cover a dog low in a portrait and two puppies in
 grass. A licensed panda eating bamboo is also included as a regression for a
-previously reported failure with a similar image.
+previously reported failure with a similar image. FocalNet letterbox and
+centroid math is covered without ONNX Runtime; a contract-compatible dummy
+ONNX is exercised in the integration suite.
 
 To also run the real YuNet and U²-Net models:
 

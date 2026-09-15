@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"autogravity/internal/facedetection"
+	"autogravity/internal/focalnet"
 	"autogravity/internal/saliency"
 )
 
@@ -51,25 +52,50 @@ func (a cancelAfterAnalyzer) Infer(_ context.Context, _ []float32) ([]float32, e
 
 func TestConfiguredModelPath(t *testing.T) {
 	for _, tc := range []struct {
-		name, precision, path, want string
-		invalid                     bool
+		name, precision, path, backend, want string
+		invalid                              bool
 	}{
-		{"default", "", "", "models/u2net-int8.onnx", false},
-		{"int8", "int8", "", "models/u2net-int8.onnx", false},
-		{"fp32", "fp32", "", "models/u2net.onnx", false},
-		{"invalid", "fp16", "", "", true},
-		{"override", "int8", "/custom/fp32.onnx", "/custom/fp32.onnx", false},
-		{"override invalid precision", "fp16", "/custom/model.onnx", "/custom/model.onnx", false},
+		{"default", "", "", "", "models/u2net-int8.onnx", false},
+		{"int8", "int8", "", "", "models/u2net-int8.onnx", false},
+		{"fp32", "fp32", "", "", "models/u2net.onnx", false},
+		{"invalid", "fp16", "", "", "", true},
+		{"override", "int8", "/custom/fp32.onnx", "", "/custom/fp32.onnx", false},
+		{"override invalid precision", "fp16", "/custom/model.onnx", "", "/custom/model.onnx", false},
+		{"focalnet", "", "", "focalnet", "models/focalnet.onnx", false},
+		{"focalnet override", "int8", "/custom/focalnet.onnx", "focalnet", "/custom/focalnet.onnx", false},
+		{"invalid backend", "", "", "clip", "", true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Setenv("MODEL_PATH", tc.path)
 			t.Setenv("MODEL_PRECISION", tc.precision)
+			t.Setenv("MODEL_BACKEND", tc.backend)
 			got, err := configuredModelPath()
 			if (err != nil) != tc.invalid {
 				t.Fatalf("unexpected error: %v", err)
 			}
 			if got != tc.want {
 				t.Fatalf("got %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestConfiguredBackend(t *testing.T) {
+	for _, tc := range []struct {
+		value string
+		want  backendKind
+		bad   bool
+	}{
+		{"", backendU2Net, false},
+		{"u2net", backendU2Net, false},
+		{"focalnet", backendFocalNet, false},
+		{"clip", "", true},
+	} {
+		t.Run(tc.value, func(t *testing.T) {
+			t.Setenv("MODEL_BACKEND", tc.value)
+			got, err := configuredBackend()
+			if (err != nil) != tc.bad || got != tc.want {
+				t.Fatalf("configuredBackend() = %q, %v; want %q, bad=%v", got, err, tc.want, tc.bad)
 			}
 		})
 	}
@@ -210,6 +236,55 @@ func TestHandleAnalyzePrioritizesFace(t *testing.T) {
 	}
 	if saliencyCalls != 0 {
 		t.Fatalf("saliency calls = %d, want zero", saliencyCalls)
+	}
+}
+
+func TestHandleAnalyzeFocalNet(t *testing.T) {
+	faceCalls := 0
+	faces := faceAnalyzerFunc(func(context.Context, image.Image) ([]facedetection.Detection, error) {
+		faceCalls++
+		return []facedetection.Detection{{
+			Bounds:     facedetection.Box{MinX: 0, MinY: 0, MaxX: 1, MaxY: 1},
+			Confidence: 0.99,
+		}}, nil
+	})
+	model := analyzerFunc(func(input []float32) ([]float32, error) {
+		if len(input) != 3*focalnet.InputSize*focalnet.InputSize {
+			t.Fatalf("input length = %d, want %d", len(input), 3*focalnet.InputSize*focalnet.InputSize)
+		}
+		result := make([]float32, focalnet.MapSize*focalnet.MapSize)
+		for y := 40; y < 48; y++ {
+			for x := 48; x < 56; x++ {
+				result[y*focalnet.MapSize+x] = 0.9
+			}
+		}
+		return result, nil
+	})
+	app := newApplicationForBackend(model, faces, 2, backendFocalNet)
+	request := httptest.NewRequest(http.MethodPost, "/analyze", bytes.NewReader(testPNG(t)))
+	request.Header.Set("Content-Type", "image/png")
+	response := httptest.NewRecorder()
+
+	app.handleAnalyze(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d: %s", response.Code, response.Body.String())
+	}
+	var body analyzeResponse
+	if err := json.NewDecoder(response.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Source != "focalnet" {
+		t.Fatalf("source = %q, want focalnet", body.Source)
+	}
+	if body.Gravity.X < 0.78 || body.Gravity.X > 0.85 || body.Gravity.Y < 0.65 || body.Gravity.Y > 0.73 {
+		t.Fatalf("gravity = %+v, want lower-right importance mass", body.Gravity)
+	}
+	if body.Confidence < 0.89 || body.Confidence > 0.91 {
+		t.Fatalf("confidence = %v, want ~0.9", body.Confidence)
+	}
+	if faceCalls != 0 {
+		t.Fatalf("face detection calls = %d, want zero", faceCalls)
 	}
 }
 

@@ -1,0 +1,83 @@
+[
+  {
+    "width": 200,
+    "height": 100,
+    "size": 256,
+    "left": 0,
+    "top": 64,
+    "fit_width": 256,
+    "fit_height": 128
+  },
+  {
+    "width": 512,
+    "height": 257,
+    "size": 256,
+    "left": 0,
+    "top": 63,
+    "fit_width": 256,
+    "fit_height": 129
+  },
+  {
+    "width": 199,
+    "height": 301,
+    "size": 256,
+    "left": 43,
+    "top": 0,
+    "fit_width": 169,
+    "fit_height": 256
+  },
+  {
+    "width": 640,
+    "height": 320,
+    "size": 256,
+    "left": 0,
+    "top": 64,
+    "fit_width": 256,
+    "fit_height": 128
+  },
+  {
+    "width": 1,
+    "height": 10000,
+    "size": 256,
+    "left": 127,
+    "top": 0,
+    "fit_width": 1,
+    "fit_height": 256
+  },
+  {
+    "width": 901,
+    "height": 109,
+    "size": 256,
+    "left": 0,
+    "top": 112,
+    "fit_width": 256,
+    "fit_height": 31
+  },
+  {
+    "width": 303,
+    "height": 509,
+    "size": 256,
+    "left": 52,
+    "top": 0,
+    "fit_width": 152,
+    "fit_height": 256
+  },
+  {
+    "width": 256,
+    "height": 256,
+    "size": 256,
+    "left": 0,
+    "top": 0,
+    "fit_width": 256,
+    "fit_height": 256
+  },
+  {
+    "width": 1,
+    "height": 1,
+    "size": 256,
+    "left": 0,
+    "top": 0,
+    "fit_width": 256,
+    "fit_height": 256
+  }
+]

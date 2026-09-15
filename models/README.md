@@ -47,3 +47,12 @@ focal point, while images without a reliable face retain the saliency result.
 The 0.85 default retains the licensed clear-face fixture while rejecting a
 0.81 false positive on the two-puppy regression image. Deliberately blurred or
 obscured faces may not reach the threshold.
+
+## FocalNet
+
+FocalNet is an optional `MODEL_BACKEND=focalnet` path. It does not ship in this
+repository: FocalNet does not distribute pretrained checkpoints, and the
+evaluated FP32 artifact is about 19 MiB. Point `MODEL_PATH` at a format-v1
+`focalnet.onnx` (input `image` `[1,3,256,256]`, output `importance`
+`[1,1,64,64]`). A contract-compatible placeholder lives at
+`internal/focalnet/testdata/dummy.onnx` for CI; it is not a quality model.

@@ -39,10 +39,11 @@ The server listens on `:8080`. These environment variables are available:
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `ADDR` | `:8080` | HTTP listen address |
-| `MODEL_PRECISION` | `int8` | `int8` or `fp32`, on every architecture |
-| `MODEL_PATH` | unset | Explicit model path; overrides `MODEL_PRECISION` |
-| `FACE_MODEL_PATH` | `models/face_detection_yunet_2023mar.onnx` | YuNet face-detection model path |
-| `FACE_SCORE_THRESHOLD` | `0.85` | Minimum face confidence in `(0.0, 1.0]` |
+| `MODEL_BACKEND` | `u2net` | `u2net` (YuNet + U²-Net) or `focalnet` (distilled importance model) |
+| `MODEL_PRECISION` | `int8` | `int8` or `fp32` for the U²-Net backend |
+| `MODEL_PATH` | unset | Explicit model path; overrides `MODEL_PRECISION` / FocalNet default |
+| `FACE_MODEL_PATH` | `models/face_detection_yunet_2023mar.onnx` | YuNet face-detection model path (U²-Net backend only) |
+| `FACE_SCORE_THRESHOLD` | `0.85` | Minimum face confidence in `(0.0, 1.0]` (U²-Net backend only) |
 | `ONNXRUNTIME_LIB` | required | Full ONNX Runtime shared-library path |
 | `MAX_CONCURRENT_ANALYSES` | available CPUs | Maximum images decoded and inferred concurrently |
 | `ONNX_INTRA_OP_THREADS` | `1` | CPU threads used within each ONNX operator |
@@ -178,12 +179,13 @@ stretching or cropping. Padding is excluded from the calculation. Pixels
 reaching at least half the peak activation are grouped into connected regions,
 and the region with the greatest total saliency supplies the fallback point.
 
-`source` is `face` or `saliency`. `confidence` is the selected model's score:
-YuNet's face score for `face`, or the peak fused-map activation for `saliency`.
-Scores are clamped to `[0.0, 1.0]` but are not calibrated probabilities and
-should not be compared across sources. Face detection does not perform identity
-recognition. Blurred, obscured, or highly stylized faces may use the saliency
-fallback.
+`source` is `face` or `saliency` on the default U²-Net backend, or `focalnet`
+when `MODEL_BACKEND=focalnet`. `confidence` is the selected model's score:
+YuNet's face score for `face`, the peak fused-map activation for `saliency`, or
+the restored importance-map peak for `focalnet`. Scores are clamped to
+`[0.0, 1.0]` but are not calibrated probabilities and should not be compared
+across sources. Face detection does not perform identity recognition. Blurred,
+obscured, or highly stylized faces may use the saliency fallback.
 
 Requests default to a 10 MiB body limit, configured with `MAX_REQUEST_SIZE`
 (`10MiB`, `10485760`, or another positive byte size), and decoded images to 48
@@ -191,6 +193,29 @@ megapixels. Separate upload and analysis admission limits bound buffered-body
 and decoded-image memory without allowing slow uploads to reserve inference
 capacity. Both models are loaded once at startup and their inference sessions
 are reused safely across requests.
+
+## FocalNet backend
+
+[FocalNet](https://github.com/appwrite/focalnet) distills Autogravity's YuNet +
+U²-Net teacher into one compact ONNX importance model. Set
+`MODEL_BACKEND=focalnet` to load it instead of the two-model pipeline. YuNet is
+not run; faces are already fused into the 64×64 map. `/analyze` still returns a
+normalized focal point. The evaluated artifact is FP32 (`focalnet.onnx`);
+post-training INT8 did not pass FocalNet's crop-quality gate.
+
+This repository does not vendor FocalNet weights. Export a format-v1 checkpoint
+from FocalNet, then:
+
+```sh
+export MODEL_BACKEND=focalnet
+export MODEL_PATH=/absolute/path/to/focalnet.onnx
+./autogravity
+```
+
+The ONNX contract is RGB NCHW `[1,3,256,256]` in, sigmoid importance
+`[1,1,64,64]` out. Autogravity unpads the letterboxed map and returns its mass
+centroid. Preprocessing matches FocalNet's Python runtime (`imaging.py`) via
+the existing Go letterbox path at 256×256.
 
 ## Telemetry and shutdown
 
