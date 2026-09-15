@@ -20,9 +20,19 @@ ADD --checksum=sha256:8d10d2f3bb75ae3b6d527c77944fc5e7dcd94b29809d47a739a7a728a9
     https://github.com/danielgatis/rembg/releases/download/v0.0.0/u2net.onnx /opt/models/u2net.onnx
 COPY models/u2net-int8.onnx /opt/models/u2net-int8.onnx
 COPY models/face_detection_yunet_2023mar.onnx /opt/models/face_detection_yunet_2023mar.onnx
-COPY models/README.md models/U2NET_LICENSE models/YUNET_LICENSE /opt/models/
+COPY models/focalnet-human.onnx /opt/models/focalnet-human.onnx
+COPY models/README.md models/U2NET_LICENSE models/YUNET_LICENSE models/FOCALNET_LICENSE /opt/models/
 RUN echo "b340186f56660b6665e494aab912e5f8e9adbc2317181c77fd01aa226f06553b  /opt/models/u2net-int8.onnx" | sha256sum -c -
 RUN echo "8f2383e4dd3cfbb4553ea8718107fc0423210dc964f9f4280604804ed2552fa4  /opt/models/face_detection_yunet_2023mar.onnx" | sha256sum -c -
+RUN actual="$(sha256sum /opt/models/focalnet-human.onnx | awk '{print $1}')" \
+    && if [ "$actual" = "59164c601c98cea3f62b25166710831dac63e1a872fc64767c65316ad5385439" ]; then \
+         echo "focalnet-human.onnx matches 2026-09-14-rc1"; \
+       elif [ "$actual" = "8fe8e1023bf0f355b4c113f86329cf19e660e05bfbee172d5b0f21dc120d1102" ]; then \
+         echo "WARNING: image contains the FocalNet contract dummy, not the published weights"; \
+       else \
+         echo "unexpected focalnet-human.onnx checksum: $actual" >&2; \
+         exit 1; \
+       fi
 
 WORKDIR /src
 COPY go.mod go.sum ./

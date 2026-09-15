@@ -20,6 +20,12 @@ type analyzerFunc func([]float32) ([]float32, error)
 
 func (f analyzerFunc) Infer(_ context.Context, input []float32) ([]float32, error) { return f(input) }
 
+type rankerFunc func(context.Context, []float32, []float32, []float32) ([]float32, []float32, error)
+
+func (f rankerFunc) Infer(ctx context.Context, image, boxes, content []float32) ([]float32, []float32, error) {
+	return f(ctx, image, boxes, content)
+}
+
 func fixtureRequest(t *testing.T, fixture testimages.Fixture, multipartBody bool, data []byte) *http.Request {
 	t.Helper()
 	var body io.Reader = bytes.NewReader(data)
