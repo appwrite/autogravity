@@ -47,8 +47,8 @@ model-fp32:
 
 model-focalnet:
 	@if [ ! -f "$(FOCALNET_MODEL_PATH)" ]; then \
-		if command -v gh >/dev/null 2>&1; then \
-			gh release download "$(FOCALNET_MODEL_TAG)" --repo appwrite/focalnet --pattern focalnet-human.onnx --dir models --clobber; \
+		if command -v gh >/dev/null 2>&1 && gh release download "$(FOCALNET_MODEL_TAG)" --repo appwrite/focalnet --pattern focalnet-human.onnx --dir models --clobber; then \
+			true; \
 		else \
 			curl -fL --retry 3 -o "$(FOCALNET_MODEL_PATH)" "$(FOCALNET_MODEL_URL)"; \
 		fi; \

@@ -428,9 +428,34 @@ func TestHandleAnalyzeErrors(t *testing.T) {
 }
 
 func TestHandleAnalyzeBoundsConcurrentWork(t *testing.T) {
-	analyzer := &fakeAnalyzer{delay: 10 * time.Millisecond}
+	var inFlight, maxInFlight atomic.Int32
+	unblock := make(chan struct{})
+	sawTwo := make(chan struct{})
+	var sawTwoOnce sync.Once
+	var releaseOnce sync.Once
+	release := func() { releaseOnce.Do(func() { close(unblock) }) }
+	model := analyzerFunc(func([]float32) ([]float32, error) {
+		n := inFlight.Add(1)
+		defer inFlight.Add(-1)
+		for {
+			maximum := maxInFlight.Load()
+			if n <= maximum || maxInFlight.CompareAndSwap(maximum, n) {
+				break
+			}
+		}
+		if n >= 2 {
+			sawTwoOnce.Do(func() { close(sawTwo) })
+		}
+		select {
+		case <-unblock:
+		case <-time.After(3 * time.Second):
+		}
+		result := make([]float32, saliency.InputWidth*saliency.InputHeight)
+		result[len(result)/2] = 0.9
+		return result, nil
+	})
 	const concurrency = 2
-	app := newApplication(analyzer, concurrency)
+	app := newApplication(model, concurrency)
 	data := testPNG(t)
 
 	var wait sync.WaitGroup
@@ -447,9 +472,16 @@ func TestHandleAnalyzeBoundsConcurrentWork(t *testing.T) {
 			}
 		}()
 	}
+	select {
+	case <-sawTwo:
+	case <-time.After(3 * time.Second):
+		release()
+		wait.Wait()
+		t.Fatalf("maximum concurrent analyses = %d, want %d", maxInFlight.Load(), concurrency)
+	}
+	release()
 	wait.Wait()
-
-	if got := analyzer.maxInFlight.Load(); got != concurrency {
+	if got := maxInFlight.Load(); got != int32(concurrency) {
 		t.Fatalf("maximum concurrent analyses = %d, want %d", got, concurrency)
 	}
 }

@@ -67,3 +67,9 @@ importance-retention gate, and returns the selected crop center. A
 contract-compatible placeholder lives at `internal/focalnet/testdata/dummy.onnx`
 for CI; it is not a quality model. The artifact is redistributed under the MIT
 license in `FOCALNET_LICENSE`.
+
+The FocalNet GitHub release is currently private, so Autogravity's default
+`GITHUB_TOKEN` cannot download it. PR image builds fall back to the dummy so
+Docker still compiles. Published release images need a token that can read
+`appwrite/focalnet` (set repo secret `FOCALNET_GITHUB_TOKEN`, or run
+`make model-focalnet` before `docker build`).
