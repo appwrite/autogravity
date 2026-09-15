@@ -24,7 +24,7 @@ type Options struct {
 	IntraOpThreads int
 }
 
-// New initializes ONNX Runtime and loads a format-v1 importance model.
+// New initializes ONNX Runtime and loads a format-v2 human-ranking model.
 func New(runtimeLibraryPath, modelPath string) (*Model, error) {
 	return NewWithOptions(runtimeLibraryPath, modelPath, Options{})
 }
@@ -66,8 +66,8 @@ func NewWithOptions(runtimeLibraryPath, modelPath string, options Options) (*Mod
 
 	session, err := ort.NewDynamicAdvancedSession(
 		modelPath,
-		[]string{"image"},
-		[]string{"importance"},
+		[]string{"image", "boxes", "content"},
+		[]string{"importance", "crop_scores"},
 		sessionOptions,
 	)
 	if err != nil {
@@ -78,39 +78,62 @@ func NewWithOptions(runtimeLibraryPath, modelPath string, options Options) (*Mod
 	return &Model{session: session, environmentHeld: true}, nil
 }
 
-// Infer returns the model's 64x64 letterboxed importance map.
-func (m *Model) Infer(ctx context.Context, input []float32) ([]float32, error) {
+// Infer runs the published human-ranking graph. image is NCHW 256×256, boxes
+// is 128×4, and content is the letterbox rectangle [left, top, right, bottom].
+func (m *Model) Infer(ctx context.Context, image, boxes, content []float32) (importance, scores []float32, err error) {
 	if ctx == nil {
-		return nil, errors.New("inference context is required")
+		return nil, nil, errors.New("inference context is required")
 	}
 	if err := ctx.Err(); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	if len(input) != 3*InputSize*InputSize {
-		return nil, fmt.Errorf("invalid input tensor length: got %d", len(input))
+	if len(image) != 3*InputSize*InputSize {
+		return nil, nil, fmt.Errorf("invalid input tensor length: got %d", len(image))
+	}
+	if len(boxes) != MaxCandidates*4 {
+		return nil, nil, fmt.Errorf("invalid boxes tensor length: got %d", len(boxes))
+	}
+	if len(content) != 4 {
+		return nil, nil, fmt.Errorf("invalid content tensor length: got %d", len(content))
 	}
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	if m.closed {
-		return nil, errors.New("focalnet model is closed")
+		return nil, nil, errors.New("focalnet model is closed")
 	}
 
-	inputTensor, err := ort.NewTensor(ort.NewShape(1, 3, InputSize, InputSize), input)
+	imageTensor, err := ort.NewTensor(ort.NewShape(1, 3, InputSize, InputSize), image)
 	if err != nil {
-		return nil, fmt.Errorf("create input tensor: %w", err)
+		return nil, nil, fmt.Errorf("create image tensor: %w", err)
 	}
-	defer inputTensor.Destroy()
+	defer imageTensor.Destroy()
+	boxesTensor, err := ort.NewTensor(ort.NewShape(1, MaxCandidates, 4), boxes)
+	if err != nil {
+		return nil, nil, fmt.Errorf("create boxes tensor: %w", err)
+	}
+	defer boxesTensor.Destroy()
+	contentTensor, err := ort.NewTensor(ort.NewShape(1, 4), content)
+	if err != nil {
+		return nil, nil, fmt.Errorf("create content tensor: %w", err)
+	}
+	defer contentTensor.Destroy()
 
-	result := make([]float32, MapSize*MapSize)
-	outputTensor, err := ort.NewTensor(ort.NewShape(1, 1, MapSize, MapSize), result)
+	importance = make([]float32, MapSize*MapSize)
+	importanceTensor, err := ort.NewTensor(ort.NewShape(1, 1, MapSize, MapSize), importance)
 	if err != nil {
-		return nil, fmt.Errorf("create output tensor: %w", err)
+		return nil, nil, fmt.Errorf("create importance tensor: %w", err)
 	}
-	defer outputTensor.Destroy()
+	defer importanceTensor.Destroy()
+	scores = make([]float32, MaxCandidates)
+	scoresTensor, err := ort.NewTensor(ort.NewShape(1, MaxCandidates), scores)
+	if err != nil {
+		return nil, nil, fmt.Errorf("create scores tensor: %w", err)
+	}
+	defer scoresTensor.Destroy()
 
 	runOptions, err := ort.NewRunOptions()
 	if err != nil {
-		return nil, fmt.Errorf("create inference run options: %w", err)
+		return nil, nil, fmt.Errorf("create inference run options: %w", err)
 	}
 	defer runOptions.Destroy()
 
@@ -126,29 +149,34 @@ func (m *Model) Infer(ctx context.Context, input []float32) ([]float32, error) {
 	}()
 
 	runErr := m.session.RunWithOptions(
-		[]ort.Value{inputTensor},
-		[]ort.Value{outputTensor},
+		[]ort.Value{imageTensor, boxesTensor, contentTensor},
+		[]ort.Value{importanceTensor, scoresTensor},
 		runOptions,
 	)
 	close(stopWatcher)
 	<-watcherDone
 	if ctxErr := ctx.Err(); ctxErr != nil {
-		return nil, ctxErr
+		return nil, nil, ctxErr
 	}
 	if runErr != nil {
-		return nil, fmt.Errorf("run focalnet model: %w", runErr)
+		return nil, nil, fmt.Errorf("run focalnet model: %w", runErr)
 	}
-	if err := validateImportance(result); err != nil {
-		return nil, err
+	if err := validateImportance(importance); err != nil {
+		return nil, nil, err
 	}
-	for i, value := range result {
+	for i, value := range importance {
 		if value < 0 {
-			result[i] = 0
+			importance[i] = 0
 		} else if value > 1 {
-			result[i] = 1
+			importance[i] = 1
 		}
 	}
-	return result, nil
+	for _, value := range scores {
+		if math.IsNaN(float64(value)) || math.IsInf(float64(value), 0) {
+			return nil, nil, errors.New("model produced invalid crop scores")
+		}
+	}
+	return importance, scores, nil
 }
 
 func validateImportance(values []float32) error {

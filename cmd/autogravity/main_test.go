@@ -61,8 +61,8 @@ func TestConfiguredModelPath(t *testing.T) {
 		{"invalid", "fp16", "", "", "", true},
 		{"override", "int8", "/custom/fp32.onnx", "", "/custom/fp32.onnx", false},
 		{"override invalid precision", "fp16", "/custom/model.onnx", "", "/custom/model.onnx", false},
-		{"focalnet", "", "", "focalnet", "models/focalnet.onnx", false},
-		{"focalnet override", "int8", "/custom/focalnet.onnx", "focalnet", "/custom/focalnet.onnx", false},
+		{"focalnet", "", "", "focalnet", "models/focalnet-human.onnx", false},
+		{"focalnet override", "int8", "/custom/focalnet-human.onnx", "focalnet", "/custom/focalnet-human.onnx", false},
 		{"invalid backend", "", "", "clip", "", true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -248,20 +248,31 @@ func TestHandleAnalyzeFocalNet(t *testing.T) {
 			Confidence: 0.99,
 		}}, nil
 	})
-	model := analyzerFunc(func(input []float32) ([]float32, error) {
-		if len(input) != 3*focalnet.InputSize*focalnet.InputSize {
-			t.Fatalf("input length = %d, want %d", len(input), 3*focalnet.InputSize*focalnet.InputSize)
+	ranker := rankerFunc(func(_ context.Context, image, boxes, content []float32) ([]float32, []float32, error) {
+		if len(image) != 3*focalnet.InputSize*focalnet.InputSize {
+			t.Fatalf("image length = %d, want %d", len(image), 3*focalnet.InputSize*focalnet.InputSize)
 		}
-		result := make([]float32, focalnet.MapSize*focalnet.MapSize)
+		if len(boxes) != focalnet.MaxCandidates*4 {
+			t.Fatalf("boxes length = %d, want %d", len(boxes), focalnet.MaxCandidates*4)
+		}
+		if len(content) != 4 {
+			t.Fatalf("content length = %d, want 4", len(content))
+		}
+		importance := make([]float32, focalnet.MapSize*focalnet.MapSize)
 		for y := 40; y < 48; y++ {
 			for x := 48; x < 56; x++ {
-				result[y*focalnet.MapSize+x] = 0.9
+				importance[y*focalnet.MapSize+x] = 0.9
 			}
 		}
-		return result, nil
+		scores := make([]float32, focalnet.MaxCandidates)
+		for i := 0; i < len(boxes)/4; i++ {
+			scores[i] = boxes[i*4] + boxes[i*4+1]
+		}
+		return importance, scores, nil
 	})
-	app := newApplicationForBackend(model, faces, 2, backendFocalNet)
-	request := httptest.NewRequest(http.MethodPost, "/analyze", bytes.NewReader(testPNG(t)))
+	app := newFocalNetApplication(ranker, 2)
+	app.faceModel = faces
+	request := httptest.NewRequest(http.MethodPost, "/analyze", bytes.NewReader(testPNGSize(t, 64, 64)))
 	request.Header.Set("Content-Type", "image/png")
 	response := httptest.NewRecorder()
 
@@ -277,14 +288,36 @@ func TestHandleAnalyzeFocalNet(t *testing.T) {
 	if body.Source != "focalnet" {
 		t.Fatalf("source = %q, want focalnet", body.Source)
 	}
-	if body.Gravity.X < 0.78 || body.Gravity.X > 0.85 || body.Gravity.Y < 0.65 || body.Gravity.Y > 0.73 {
-		t.Fatalf("gravity = %+v, want lower-right importance mass", body.Gravity)
+	if body.Crop == nil || body.Crop.Width < 1 || body.Crop.Height < 1 {
+		t.Fatalf("crop = %+v, want a selected rectangle", body.Crop)
+	}
+	wantX := (float64(body.Crop.Left) + float64(body.Crop.Width)/2) / 64
+	wantY := (float64(body.Crop.Top) + float64(body.Crop.Height)/2) / 64
+	if body.Gravity.X != wantX || body.Gravity.Y != wantY {
+		t.Fatalf("gravity = %+v, want crop center (%v,%v)", body.Gravity, wantX, wantY)
+	}
+	if body.Gravity.X < 0.6 || body.Gravity.Y < 0.55 {
+		t.Fatalf("gravity = %+v, want lower-right ranked crop", body.Gravity)
 	}
 	if body.Confidence < 0.89 || body.Confidence > 0.91 {
 		t.Fatalf("confidence = %v, want ~0.9", body.Confidence)
 	}
 	if faceCalls != 0 {
 		t.Fatalf("face detection calls = %d, want zero", faceCalls)
+	}
+}
+
+func TestHandleAnalyzeFocalNetRejectsInvalidAspectRatio(t *testing.T) {
+	app := newFocalNetApplication(rankerFunc(func(context.Context, []float32, []float32, []float32) ([]float32, []float32, error) {
+		t.Fatal("ranker ran for invalid aspect ratio")
+		return nil, nil, nil
+	}), 1)
+	request := httptest.NewRequest(http.MethodPost, "/analyze?aspect_ratio=nope", bytes.NewReader(testPNG(t)))
+	request.Header.Set("Content-Type", "image/png")
+	response := httptest.NewRecorder()
+	app.handleAnalyze(response, request)
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400; body = %s", response.Code, response.Body.String())
 	}
 }
 
@@ -496,6 +529,23 @@ func TestPositiveEnvDuration(t *testing.T) {
 		if (err != nil) != tt.bad || got != tt.want {
 			t.Fatalf("positiveEnvDuration(%q) = %v, %v; want %v, bad=%v", tt.value, got, err, tt.want, tt.bad)
 		}
+	}
+}
+
+func TestHandleAnalyzeDeadlineCancelsFocalNetInference(t *testing.T) {
+	app := newFocalNetApplication(rankerFunc(func(ctx context.Context, _, _, _ []float32) ([]float32, []float32, error) {
+		<-ctx.Done()
+		return nil, nil, ctx.Err()
+	}), 1)
+	app.analysisTimeout = 10 * time.Millisecond
+	request := httptest.NewRequest(http.MethodPost, "/analyze", bytes.NewReader(testPNG(t)))
+	request.Header.Set("Content-Type", "image/png")
+	response := httptest.NewRecorder()
+
+	app.handleAnalyze(response, request)
+
+	if response.Code != http.StatusGatewayTimeout {
+		t.Fatalf("status = %d, want 504; body = %s", response.Code, response.Body.String())
 	}
 }
 
@@ -718,11 +768,24 @@ func TestHandleHealthzErrors(t *testing.T) {
 			t.Fatalf("status = %d, want 503; body = %s", response.Code, response.Body.String())
 		}
 	})
+
+	t.Run("focalnet ranker not ready", func(t *testing.T) {
+		request := httptest.NewRequest(http.MethodGet, "/healthz", nil)
+		response := httptest.NewRecorder()
+		newFocalNetApplication(nil, 2).handleHealthz(response, request)
+		if response.Code != http.StatusServiceUnavailable {
+			t.Fatalf("status = %d, want 503; body = %s", response.Code, response.Body.String())
+		}
+	})
 }
 
 func testPNG(t *testing.T) []byte {
+	return testPNGSize(t, 2, 2)
+}
+
+func testPNGSize(t *testing.T, width, height int) []byte {
 	t.Helper()
-	img := image.NewRGBA(image.Rect(0, 0, 2, 2))
+	img := image.NewRGBA(image.Rect(0, 0, width, height))
 	img.SetRGBA(0, 0, color.RGBA{R: 255, A: 255})
 	var encoded bytes.Buffer
 	if err := png.Encode(&encoded, img); err != nil {

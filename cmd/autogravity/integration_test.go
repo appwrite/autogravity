@@ -403,8 +403,16 @@ func TestAnalyzeFocalNetDummy(t *testing.T) {
 	if result.Source != "focalnet" {
 		t.Fatalf("source = %q, want focalnet", result.Source)
 	}
+	if result.Crop == nil || result.Crop.Width < 1 || result.Crop.Height < 1 {
+		t.Fatalf("crop = %+v, want a selected rectangle", result.Crop)
+	}
 	if math.Abs(result.Gravity.X-0.5) > 0.05 || math.Abs(result.Gravity.Y-0.5) > 0.05 {
 		t.Fatalf("dummy gaussian should stay near center, got %+v", result.Gravity)
+	}
+	wantX := (float64(result.Crop.Left) + float64(result.Crop.Width)/2) / 400
+	wantY := (float64(result.Crop.Top) + float64(result.Crop.Height)/2) / 301
+	if math.Abs(result.Gravity.X-wantX) > 1e-9 || math.Abs(result.Gravity.Y-wantY) > 1e-9 {
+		t.Fatalf("gravity %+v is not the crop center (%v,%v)", result.Gravity, wantX, wantY)
 	}
 	if result.Confidence <= 0 {
 		t.Fatalf("confidence = %v, want a positive peak", result.Confidence)

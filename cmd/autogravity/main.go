@@ -37,7 +37,7 @@ const (
 	maxConcurrentUploads                 = 4        // Bounds buffered bodies without reserving inference.
 	defaultIntraOpThreads                = 1        // Avoid N requests multiplying ONNX worker threads.
 	defaultFaceModelPath                 = "models/face_detection_yunet_2023mar.onnx"
-	defaultFocalNetModelPath             = "models/focalnet.onnx"
+	defaultFocalNetModelPath             = "models/focalnet-human.onnx"
 	defaultAnalysisTimeout               = 30 * time.Second
 	defaultShutdownTimeout               = 30 * time.Second
 )
@@ -54,12 +54,17 @@ type analyzer interface {
 	Infer(context.Context, []float32) ([]float32, error)
 }
 
+type cropRanker interface {
+	Infer(context.Context, []float32, []float32, []float32) ([]float32, []float32, error)
+}
+
 type faceAnalyzer interface {
 	Detect(context.Context, image.Image) ([]facedetection.Detection, error)
 }
 
 type application struct {
 	model           analyzer
+	ranker          cropRanker
 	faceModel       faceAnalyzer
 	backend         backendKind
 	inputSize       int
@@ -72,10 +77,19 @@ type application struct {
 	draining        atomic.Bool
 }
 
+type cropBox struct {
+	Left               int     `json:"left"`
+	Top                int     `json:"top"`
+	Width              int     `json:"width"`
+	Height             int     `json:"height"`
+	RetainedImportance float64 `json:"retained_importance"`
+}
+
 type analyzeResponse struct {
 	Gravity    gravity.Point `json:"gravity"`
 	Confidence float64       `json:"confidence"`
 	Source     string        `json:"source"`
+	Crop       *cropBox      `json:"crop,omitempty"`
 }
 
 type healthResponse struct {
@@ -283,7 +297,7 @@ func (app *application) handleReadyz(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
-	if app.model == nil || app.draining.Load() {
+	if !app.ready() || app.draining.Load() {
 		writeError(w, http.StatusServiceUnavailable, "model not ready")
 		return
 	}
@@ -382,7 +396,13 @@ func (app *application) handleAnalyze(w http.ResponseWriter, r *http.Request) {
 	app.telemetry.stageDuration.WithLabelValues("decode").Observe(time.Since(decodeStarted).Seconds())
 
 	if app.backend == backendFocalNet {
-		point, confidence, err := app.analyzeFocalNet(ctx, img)
+		aspectRatio, err := focalnet.ParseAspectRatio(r.URL.Query().Get("aspect_ratio"))
+		if err != nil {
+			outcome = "invalid_request"
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		ranked, err := app.analyzeFocalNet(ctx, img, aspectRatio)
 		if err != nil {
 			if ctx.Err() != nil {
 				observeCancellation()
@@ -399,7 +419,18 @@ func (app *application) handleAnalyze(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		app.telemetry.gravitySources.WithLabelValues("focalnet").Inc()
-		writeJSON(w, http.StatusOK, analyzeResponse{Gravity: point, Confidence: confidence, Source: "focalnet"})
+		writeJSON(w, http.StatusOK, analyzeResponse{
+			Gravity:    ranked.Gravity,
+			Confidence: ranked.Confidence,
+			Source:     "focalnet",
+			Crop: &cropBox{
+				Left:               ranked.Left,
+				Top:                ranked.Top,
+				Width:              ranked.Width,
+				Height:             ranked.Height,
+				RetainedImportance: ranked.Retention,
+			},
+		})
 		return
 	}
 
@@ -495,7 +526,10 @@ func (app *application) handleAnalyze(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, analyzeResponse{Gravity: point, Confidence: confidence, Source: "saliency"})
 }
 
-func (app *application) analyzeFocalNet(ctx context.Context, img image.Image) (gravity.Point, float64, error) {
+func (app *application) analyzeFocalNet(ctx context.Context, img image.Image, aspectRatio float64) (focalnet.RankedCrop, error) {
+	if app.ranker == nil {
+		return focalnet.RankedCrop{}, errors.New("focalnet model is not ready")
+	}
 	preprocessStarted := time.Now()
 	var input []float32
 	select {
@@ -511,45 +545,60 @@ func (app *application) analyzeFocalNet(ctx context.Context, img image.Image) (g
 	}()
 	content, err := imageutil.PrepareInto(input, img, app.inputSize, app.inputSize)
 	if err != nil {
-		return gravity.Point{}, 0, fmt.Errorf("%w: %v", errFocalNetPreprocess, err)
+		return focalnet.RankedCrop{}, fmt.Errorf("%w: %v", errFocalNetPreprocess, err)
+	}
+	bounds := img.Bounds()
+	width, height := bounds.Dx(), bounds.Dy()
+	candidates, err := focalnet.GenerateCandidates(width, height, aspectRatio)
+	if err != nil {
+		return focalnet.RankedCrop{}, err
 	}
 	app.telemetry.stageDuration.WithLabelValues("preprocessing").Observe(time.Since(preprocessStarted).Seconds())
 	inferenceStarted := time.Now()
 	app.telemetry.inferenceActive.Inc()
-	mapData, err := app.model.Infer(ctx, input)
+	importance, scores, err := app.ranker.Infer(ctx, input, focalnet.PadBoxes(candidates), focalnet.FromContent(content, app.inputSize).Content())
 	app.telemetry.inferenceActive.Dec()
 	app.telemetry.stageDuration.WithLabelValues("inference").Observe(time.Since(inferenceStarted).Seconds())
 	if err != nil {
 		if ctx.Err() != nil {
-			return gravity.Point{}, 0, err
+			return focalnet.RankedCrop{}, err
 		}
 		slog.Error("inference failed", "error", err)
-		return gravity.Point{}, 0, err
+		return focalnet.RankedCrop{}, err
 	}
 	if ctx.Err() != nil {
-		return gravity.Point{}, 0, ctx.Err()
+		return focalnet.RankedCrop{}, ctx.Err()
 	}
 	focalStarted := time.Now()
-	restored, err := focalnet.RestoreMap(mapData, focalnet.MapSize, focalnet.FromContent(content, app.inputSize), focalnet.MapSize)
+	restored, err := focalnet.RestoreMap(importance, focalnet.MapSize, focalnet.FromContent(content, app.inputSize), focalnet.MapSize)
 	if err != nil {
 		slog.Error("importance-map restore failed", "error", err)
-		return gravity.Point{}, 0, err
+		return focalnet.RankedCrop{}, err
 	}
-	point, confidence, err := focalnet.FromImportance(restored, focalnet.MapSize, focalnet.MapSize)
+	ranked, err := focalnet.SelectRankedCrop(restored, focalnet.MapSize, focalnet.MapSize, candidates, scores, width, height)
 	if err != nil {
-		slog.Error("focal-point calculation failed", "error", err)
-		return gravity.Point{}, 0, err
+		slog.Error("crop ranking failed", "error", err)
+		return focalnet.RankedCrop{}, err
 	}
 	app.telemetry.stageDuration.WithLabelValues("focal_point").Observe(time.Since(focalStarted).Seconds())
-	return point, confidence, nil
+	return ranked, nil
 }
 
 func newApplication(model analyzer, maxConcurrentAnalyses int) *application {
 	return newApplicationWithFace(model, nil, maxConcurrentAnalyses)
 }
 
-func newFocalNetApplication(model analyzer, maxConcurrentAnalyses int) *application {
-	return newApplicationForBackend(model, nil, maxConcurrentAnalyses, backendFocalNet)
+func newFocalNetApplication(ranker cropRanker, maxConcurrentAnalyses int) *application {
+	app := newApplicationForBackend(nil, nil, maxConcurrentAnalyses, backendFocalNet)
+	app.ranker = ranker
+	return app
+}
+
+func (app *application) ready() bool {
+	if app.backend == backendFocalNet {
+		return app.ranker != nil
+	}
+	return app.model != nil
 }
 
 func newApplicationWithFace(model analyzer, faceModel faceAnalyzer, maxConcurrentAnalyses int) *application {

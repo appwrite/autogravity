@@ -1,5 +1,5 @@
-// Package focalnet runs the distilled FocalNet importance model and restores
-// its 64×64 map into oriented-image coordinates.
+// Package focalnet runs the published FocalNet human-ranking model and
+// restores its 64×64 importance map into oriented-image coordinates.
 package focalnet
 
 import (
@@ -13,6 +13,11 @@ const (
 	InputSize = 256
 	// MapSize is the square importance-map edge length.
 	MapSize = 64
+	// MaxCandidates is the padded crop-ranking batch size.
+	MaxCandidates = 128
+	// RetentionTolerance is the importance-retention margin used when
+	// selecting among human-ranked crops.
+	RetentionTolerance = 0.05
 )
 
 // Letterbox is the content rectangle inside a square model input.
@@ -50,6 +55,18 @@ func FromContent(content image.Rectangle, size int) Letterbox {
 		Top:    content.Min.Y,
 		Width:  content.Dx(),
 		Height: content.Dy(),
+	}
+}
+
+// Content is the normalized letterbox rectangle consumed as the model's
+// `content` input: [left, top, right, bottom] in model-input coordinates.
+func (b Letterbox) Content() []float32 {
+	size := float32(b.Size)
+	return []float32{
+		float32(b.Left) / size,
+		float32(b.Top) / size,
+		float32(b.Left+b.Width) / size,
+		float32(b.Top+b.Height) / size,
 	}
 }
 

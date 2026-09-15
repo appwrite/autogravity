@@ -50,9 +50,20 @@ obscured faces may not reach the threshold.
 
 ## FocalNet
 
-FocalNet is an optional `MODEL_BACKEND=focalnet` path. It does not ship in this
-repository: FocalNet does not distribute pretrained checkpoints, and the
-evaluated FP32 artifact is about 19 MiB. Point `MODEL_PATH` at a format-v1
-`focalnet.onnx` (input `image` `[1,3,256,256]`, output `importance`
-`[1,1,64,64]`). A contract-compatible placeholder lives at
-`internal/focalnet/testdata/dummy.onnx` for CI; it is not a quality model.
+FocalNet is an optional `MODEL_BACKEND=focalnet` path. The published
+human-ranking graph is `focalnet-human.onnx` from the
+[FocalNet `2026-09-14-rc1` release](https://github.com/appwrite/focalnet/releases/tag/2026-09-14-rc1)
+(20,398,992 bytes). `make model-focalnet` and Docker builds download and verify
+it:
+
+```text
+59164c601c98cea3f62b25166710831dac63e1a872fc64767c65316ad5385439
+```
+
+The graph is format v2: inputs `image` `[1,3,256,256]`, `boxes` `[1,128,4]`,
+`content` `[1,4]`; outputs `importance` `[1,1,64,64]` and `crop_scores`
+`[1,128]`. Autogravity generates FocalNet's candidate crops, applies the 0.05
+importance-retention gate, and returns the selected crop center. A
+contract-compatible placeholder lives at `internal/focalnet/testdata/dummy.onnx`
+for CI; it is not a quality model. The artifact is redistributed under the MIT
+license in `FOCALNET_LICENSE`.

@@ -31,7 +31,12 @@ func TestNewRejectsNegativeIntraOpThreadsBeforeRuntimeAccess(t *testing.T) {
 func TestInferRejectsCancelledContextBeforeRuntimeAccess(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	_, err := (&Model{}).Infer(ctx, make([]float32, 3*InputSize*InputSize))
+	_, _, err := (&Model{}).Infer(
+		ctx,
+		make([]float32, 3*InputSize*InputSize),
+		make([]float32, MaxCandidates*4),
+		make([]float32, 4),
+	)
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("Infer() error = %v, want context.Canceled", err)
 	}
@@ -39,10 +44,21 @@ func TestInferRejectsCancelledContextBeforeRuntimeAccess(t *testing.T) {
 
 func TestInferRejectsInvalidTensorBeforeRuntimeAccess(t *testing.T) {
 	model := &Model{}
+	image := make([]float32, 3*InputSize*InputSize)
+	boxes := make([]float32, MaxCandidates*4)
+	content := make([]float32, 4)
 	for _, length := range []int{0, 1, InputSize * InputSize, 3*InputSize*InputSize - 1, 3*InputSize*InputSize + 1} {
-		output, err := model.Infer(context.Background(), make([]float32, length))
-		if output != nil || err == nil || !strings.Contains(err.Error(), "invalid input tensor length") {
-			t.Fatalf("Infer(%d values) = %v, %v", length, output, err)
+		importance, scores, err := model.Infer(context.Background(), make([]float32, length), boxes, content)
+		if importance != nil || scores != nil || err == nil || !strings.Contains(err.Error(), "invalid input tensor length") {
+			t.Fatalf("Infer(image %d) = %v, %v, %v", length, importance, scores, err)
 		}
+	}
+	importance, scores, err := model.Infer(context.Background(), image, make([]float32, 4), content)
+	if importance != nil || scores != nil || err == nil || !strings.Contains(err.Error(), "invalid boxes tensor length") {
+		t.Fatalf("Infer(short boxes) = %v, %v, %v", importance, scores, err)
+	}
+	importance, scores, err = model.Infer(context.Background(), image, boxes, make([]float32, 3))
+	if importance != nil || scores != nil || err == nil || !strings.Contains(err.Error(), "invalid content tensor length") {
+		t.Fatalf("Infer(short content) = %v, %v, %v", importance, scores, err)
 	}
 }
