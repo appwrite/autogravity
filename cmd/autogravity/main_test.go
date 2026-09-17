@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"autogravity/internal/facedetection"
+	"autogravity/internal/focalnet"
 	"autogravity/internal/saliency"
 )
 
@@ -51,25 +52,50 @@ func (a cancelAfterAnalyzer) Infer(_ context.Context, _ []float32) ([]float32, e
 
 func TestConfiguredModelPath(t *testing.T) {
 	for _, tc := range []struct {
-		name, precision, path, want string
-		invalid                     bool
+		name, precision, path, backend, want string
+		invalid                              bool
 	}{
-		{"default", "", "", "models/u2net-int8.onnx", false},
-		{"int8", "int8", "", "models/u2net-int8.onnx", false},
-		{"fp32", "fp32", "", "models/u2net.onnx", false},
-		{"invalid", "fp16", "", "", true},
-		{"override", "int8", "/custom/fp32.onnx", "/custom/fp32.onnx", false},
-		{"override invalid precision", "fp16", "/custom/model.onnx", "/custom/model.onnx", false},
+		{"default", "", "", "", "models/u2net-int8.onnx", false},
+		{"int8", "int8", "", "", "models/u2net-int8.onnx", false},
+		{"fp32", "fp32", "", "", "models/u2net.onnx", false},
+		{"invalid", "fp16", "", "", "", true},
+		{"override", "int8", "/custom/fp32.onnx", "", "/custom/fp32.onnx", false},
+		{"override invalid precision", "fp16", "/custom/model.onnx", "", "/custom/model.onnx", false},
+		{"focalnet", "", "", "focalnet", "models/focalnet-human.onnx", false},
+		{"focalnet override", "int8", "/custom/focalnet-human.onnx", "focalnet", "/custom/focalnet-human.onnx", false},
+		{"invalid backend", "", "", "clip", "", true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Setenv("MODEL_PATH", tc.path)
 			t.Setenv("MODEL_PRECISION", tc.precision)
+			t.Setenv("MODEL_BACKEND", tc.backend)
 			got, err := configuredModelPath()
 			if (err != nil) != tc.invalid {
 				t.Fatalf("unexpected error: %v", err)
 			}
 			if got != tc.want {
 				t.Fatalf("got %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestConfiguredBackend(t *testing.T) {
+	for _, tc := range []struct {
+		value string
+		want  backendKind
+		bad   bool
+	}{
+		{"", backendU2Net, false},
+		{"u2net", backendU2Net, false},
+		{"focalnet", backendFocalNet, false},
+		{"clip", "", true},
+	} {
+		t.Run(tc.value, func(t *testing.T) {
+			t.Setenv("MODEL_BACKEND", tc.value)
+			got, err := configuredBackend()
+			if (err != nil) != tc.bad || got != tc.want {
+				t.Fatalf("configuredBackend() = %q, %v; want %q, bad=%v", got, err, tc.want, tc.bad)
 			}
 		})
 	}
@@ -213,6 +239,88 @@ func TestHandleAnalyzePrioritizesFace(t *testing.T) {
 	}
 }
 
+func TestHandleAnalyzeFocalNet(t *testing.T) {
+	faceCalls := 0
+	faces := faceAnalyzerFunc(func(context.Context, image.Image) ([]facedetection.Detection, error) {
+		faceCalls++
+		return []facedetection.Detection{{
+			Bounds:     facedetection.Box{MinX: 0, MinY: 0, MaxX: 1, MaxY: 1},
+			Confidence: 0.99,
+		}}, nil
+	})
+	ranker := rankerFunc(func(_ context.Context, image, boxes, content []float32) ([]float32, []float32, error) {
+		if len(image) != 3*focalnet.InputSize*focalnet.InputSize {
+			t.Fatalf("image length = %d, want %d", len(image), 3*focalnet.InputSize*focalnet.InputSize)
+		}
+		if len(boxes) != focalnet.MaxCandidates*4 {
+			t.Fatalf("boxes length = %d, want %d", len(boxes), focalnet.MaxCandidates*4)
+		}
+		if len(content) != 4 {
+			t.Fatalf("content length = %d, want 4", len(content))
+		}
+		importance := make([]float32, focalnet.MapSize*focalnet.MapSize)
+		for y := 40; y < 48; y++ {
+			for x := 48; x < 56; x++ {
+				importance[y*focalnet.MapSize+x] = 0.9
+			}
+		}
+		scores := make([]float32, focalnet.MaxCandidates)
+		for i := 0; i < len(boxes)/4; i++ {
+			scores[i] = boxes[i*4] + boxes[i*4+1]
+		}
+		return importance, scores, nil
+	})
+	app := newFocalNetApplication(ranker, 2)
+	app.faceModel = faces
+	request := httptest.NewRequest(http.MethodPost, "/analyze", bytes.NewReader(testPNGSize(t, 64, 64)))
+	request.Header.Set("Content-Type", "image/png")
+	response := httptest.NewRecorder()
+
+	app.handleAnalyze(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d: %s", response.Code, response.Body.String())
+	}
+	var body analyzeResponse
+	if err := json.NewDecoder(response.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Source != "focalnet" {
+		t.Fatalf("source = %q, want focalnet", body.Source)
+	}
+	if body.Crop == nil || body.Crop.Width < 1 || body.Crop.Height < 1 {
+		t.Fatalf("crop = %+v, want a selected rectangle", body.Crop)
+	}
+	wantX := (float64(body.Crop.Left) + float64(body.Crop.Width)/2) / 64
+	wantY := (float64(body.Crop.Top) + float64(body.Crop.Height)/2) / 64
+	if body.Gravity.X != wantX || body.Gravity.Y != wantY {
+		t.Fatalf("gravity = %+v, want crop center (%v,%v)", body.Gravity, wantX, wantY)
+	}
+	if body.Gravity.X < 0.6 || body.Gravity.Y < 0.55 {
+		t.Fatalf("gravity = %+v, want lower-right ranked crop", body.Gravity)
+	}
+	if body.Confidence < 0.89 || body.Confidence > 0.91 {
+		t.Fatalf("confidence = %v, want ~0.9", body.Confidence)
+	}
+	if faceCalls != 0 {
+		t.Fatalf("face detection calls = %d, want zero", faceCalls)
+	}
+}
+
+func TestHandleAnalyzeFocalNetRejectsInvalidAspectRatio(t *testing.T) {
+	app := newFocalNetApplication(rankerFunc(func(context.Context, []float32, []float32, []float32) ([]float32, []float32, error) {
+		t.Fatal("ranker ran for invalid aspect ratio")
+		return nil, nil, nil
+	}), 1)
+	request := httptest.NewRequest(http.MethodPost, "/analyze?aspect_ratio=nope", bytes.NewReader(testPNG(t)))
+	request.Header.Set("Content-Type", "image/png")
+	response := httptest.NewRecorder()
+	app.handleAnalyze(response, request)
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400; body = %s", response.Code, response.Body.String())
+	}
+}
+
 func TestHandleAnalyzeUsesSaliencyFallback(t *testing.T) {
 	for _, test := range []struct {
 		name  string
@@ -320,9 +428,34 @@ func TestHandleAnalyzeErrors(t *testing.T) {
 }
 
 func TestHandleAnalyzeBoundsConcurrentWork(t *testing.T) {
-	analyzer := &fakeAnalyzer{delay: 10 * time.Millisecond}
+	var inFlight, maxInFlight atomic.Int32
+	unblock := make(chan struct{})
+	sawTwo := make(chan struct{})
+	var sawTwoOnce sync.Once
+	var releaseOnce sync.Once
+	release := func() { releaseOnce.Do(func() { close(unblock) }) }
+	model := analyzerFunc(func([]float32) ([]float32, error) {
+		n := inFlight.Add(1)
+		defer inFlight.Add(-1)
+		for {
+			maximum := maxInFlight.Load()
+			if n <= maximum || maxInFlight.CompareAndSwap(maximum, n) {
+				break
+			}
+		}
+		if n >= 2 {
+			sawTwoOnce.Do(func() { close(sawTwo) })
+		}
+		select {
+		case <-unblock:
+		case <-time.After(3 * time.Second):
+		}
+		result := make([]float32, saliency.InputWidth*saliency.InputHeight)
+		result[len(result)/2] = 0.9
+		return result, nil
+	})
 	const concurrency = 2
-	app := newApplication(analyzer, concurrency)
+	app := newApplication(model, concurrency)
 	data := testPNG(t)
 
 	var wait sync.WaitGroup
@@ -339,9 +472,16 @@ func TestHandleAnalyzeBoundsConcurrentWork(t *testing.T) {
 			}
 		}()
 	}
+	select {
+	case <-sawTwo:
+	case <-time.After(3 * time.Second):
+		release()
+		wait.Wait()
+		t.Fatalf("maximum concurrent analyses = %d, want %d", maxInFlight.Load(), concurrency)
+	}
+	release()
 	wait.Wait()
-
-	if got := analyzer.maxInFlight.Load(); got != concurrency {
+	if got := maxInFlight.Load(); got != int32(concurrency) {
 		t.Fatalf("maximum concurrent analyses = %d, want %d", got, concurrency)
 	}
 }
@@ -421,6 +561,23 @@ func TestPositiveEnvDuration(t *testing.T) {
 		if (err != nil) != tt.bad || got != tt.want {
 			t.Fatalf("positiveEnvDuration(%q) = %v, %v; want %v, bad=%v", tt.value, got, err, tt.want, tt.bad)
 		}
+	}
+}
+
+func TestHandleAnalyzeDeadlineCancelsFocalNetInference(t *testing.T) {
+	app := newFocalNetApplication(rankerFunc(func(ctx context.Context, _, _, _ []float32) ([]float32, []float32, error) {
+		<-ctx.Done()
+		return nil, nil, ctx.Err()
+	}), 1)
+	app.analysisTimeout = 10 * time.Millisecond
+	request := httptest.NewRequest(http.MethodPost, "/analyze", bytes.NewReader(testPNG(t)))
+	request.Header.Set("Content-Type", "image/png")
+	response := httptest.NewRecorder()
+
+	app.handleAnalyze(response, request)
+
+	if response.Code != http.StatusGatewayTimeout {
+		t.Fatalf("status = %d, want 504; body = %s", response.Code, response.Body.String())
 	}
 }
 
@@ -643,11 +800,24 @@ func TestHandleHealthzErrors(t *testing.T) {
 			t.Fatalf("status = %d, want 503; body = %s", response.Code, response.Body.String())
 		}
 	})
+
+	t.Run("focalnet ranker not ready", func(t *testing.T) {
+		request := httptest.NewRequest(http.MethodGet, "/healthz", nil)
+		response := httptest.NewRecorder()
+		newFocalNetApplication(nil, 2).handleHealthz(response, request)
+		if response.Code != http.StatusServiceUnavailable {
+			t.Fatalf("status = %d, want 503; body = %s", response.Code, response.Body.String())
+		}
+	})
 }
 
 func testPNG(t *testing.T) []byte {
+	return testPNGSize(t, 2, 2)
+}
+
+func testPNGSize(t *testing.T, width, height int) []byte {
 	t.Helper()
-	img := image.NewRGBA(image.Rect(0, 0, 2, 2))
+	img := image.NewRGBA(image.Rect(0, 0, width, height))
 	img.SetRGBA(0, 0, color.RGBA{R: 255, A: 255})
 	var encoded bytes.Buffer
 	if err := png.Encode(&encoded, img); err != nil {

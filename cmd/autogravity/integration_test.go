@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"autogravity/internal/facedetection"
+	"autogravity/internal/focalnet"
 	"autogravity/internal/imageutil"
 	"autogravity/internal/saliency"
 	"autogravity/internal/testimages"
@@ -367,5 +368,53 @@ func runSubjectCases(t *testing.T, cases []subjectCase) {
 				t.Fatalf("mirror mismatch: original %+v, mirrored %+v", raw, mirrored)
 			}
 		})
+	}
+}
+
+func TestAnalyzeFocalNetDummy(t *testing.T) {
+	library := os.Getenv("ONNXRUNTIME_LIB")
+	if library == "" {
+		t.Fatal("integration tests require ONNXRUNTIME_LIB")
+	}
+	model, err := focalnet.NewWithOptions(
+		library,
+		filepath.Join("..", "..", "internal", "focalnet", "testdata", "dummy.onnx"),
+		focalnet.Options{IntraOpThreads: 1},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := model.Close(); err != nil {
+			t.Error(err)
+		}
+	})
+	app := newFocalNetApplication(model, 1)
+	data := testimages.Read(t, "rose.png")
+	response := httptest.NewRecorder()
+	app.handleAnalyze(response, fixtureRequest(t, testimages.Fixture{Name: "rose.png", ContentType: "image/png"}, false, data))
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d: %s", response.Code, response.Body.String())
+	}
+	var result analyzeResponse
+	if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	if result.Source != "focalnet" {
+		t.Fatalf("source = %q, want focalnet", result.Source)
+	}
+	if result.Crop == nil || result.Crop.Width < 1 || result.Crop.Height < 1 {
+		t.Fatalf("crop = %+v, want a selected rectangle", result.Crop)
+	}
+	if math.Abs(result.Gravity.X-0.5) > 0.05 || math.Abs(result.Gravity.Y-0.5) > 0.05 {
+		t.Fatalf("dummy gaussian should stay near center, got %+v", result.Gravity)
+	}
+	wantX := (float64(result.Crop.Left) + float64(result.Crop.Width)/2) / 400
+	wantY := (float64(result.Crop.Top) + float64(result.Crop.Height)/2) / 301
+	if math.Abs(result.Gravity.X-wantX) > 1e-9 || math.Abs(result.Gravity.Y-wantY) > 1e-9 {
+		t.Fatalf("gravity %+v is not the crop center (%v,%v)", result.Gravity, wantX, wantY)
+	}
+	if result.Confidence <= 0 {
+		t.Fatalf("confidence = %v, want a positive peak", result.Confidence)
 	}
 }

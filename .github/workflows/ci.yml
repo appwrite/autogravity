@@ -60,6 +60,18 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4
 
+      - name: Download FocalNet human model
+        env:
+          GH_TOKEN: ${{ secrets.FOCALNET_GITHUB_TOKEN || secrets.GITHUB_TOKEN }}
+        run: |
+          if make model-focalnet; then
+            echo "Bundling published FocalNet human-ranking weights"
+          else
+            echo "FocalNet release is not readable from this workflow token; building without focalnet-human.onnx"
+            echo "Default MODEL_BACKEND=u2net still works. MODEL_BACKEND=focalnet requires the published weights."
+            rm -f models/optional/focalnet-human.onnx
+          fi
+
       - name: Build image
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:

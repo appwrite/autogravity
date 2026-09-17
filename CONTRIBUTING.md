@@ -32,7 +32,12 @@ corrupt images, and recovery after analysis failures. Fixtures and their
 source licenses live in [the fixture gallery](internal/testimages/testdata/README.md).
 Additional natural photographs cover a dog low in a portrait and two puppies in
 grass. A licensed panda eating bamboo is also included as a regression for a
-previously reported failure with a similar image.
+previously reported failure with a similar image. FocalNet letterbox and
+centroid math is covered without ONNX Runtime; a contract-compatible dummy
+ONNX is exercised in the integration suite and is never packaged as production
+weights. Candidate generation, letterbox
+`content`, and the retention-gated ranking path are checked against FocalNet
+Python goldens.
 
 To also run the real YuNet and U²-Net models:
 
@@ -111,6 +116,7 @@ reduce single-request latency when more CPU cores are available.
 ```text
 cmd/autogravity/       HTTP server and lifecycle
 internal/facedetection/ YuNet preprocessing, inference, and face selection
+internal/focalnet/     FocalNet human-ranking inference and crop selection
 internal/imageutil/    decoding, EXIF orientation, resize, normalization
 internal/ortenv/       shared ONNX Runtime lifecycle
 internal/saliency/     ONNX Runtime model session and inference

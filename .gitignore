@@ -2,5 +2,6 @@
 /models/*.onnx
 !/models/u2net-int8.onnx
 !/models/face_detection_yunet_2023mar.onnx
+/models/optional/*.onnx
 /docs/node_modules
 /docs/.output

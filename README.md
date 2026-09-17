@@ -39,10 +39,11 @@ The server listens on `:8080`. These environment variables are available:
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `ADDR` | `:8080` | HTTP listen address |
-| `MODEL_PRECISION` | `int8` | `int8` or `fp32`, on every architecture |
-| `MODEL_PATH` | unset | Explicit model path; overrides `MODEL_PRECISION` |
-| `FACE_MODEL_PATH` | `models/face_detection_yunet_2023mar.onnx` | YuNet face-detection model path |
-| `FACE_SCORE_THRESHOLD` | `0.85` | Minimum face confidence in `(0.0, 1.0]` |
+| `MODEL_BACKEND` | `u2net` | `u2net` (YuNet + U²-Net) or `focalnet` (published human-ranking model) |
+| `MODEL_PRECISION` | `int8` | `int8` or `fp32` for the U²-Net backend |
+| `MODEL_PATH` | unset | Explicit model path; overrides `MODEL_PRECISION` / FocalNet default |
+| `FACE_MODEL_PATH` | `models/face_detection_yunet_2023mar.onnx` | YuNet face-detection model path (U²-Net backend only) |
+| `FACE_SCORE_THRESHOLD` | `0.85` | Minimum face confidence in `(0.0, 1.0]` (U²-Net backend only) |
 | `ONNXRUNTIME_LIB` | required | Full ONNX Runtime shared-library path |
 | `MAX_CONCURRENT_ANALYSES` | available CPUs | Maximum images decoded and inferred concurrently |
 | `ONNX_INTRA_OP_THREADS` | `1` | CPU threads used within each ONNX operator |
@@ -96,15 +97,22 @@ the tighter constraint.
 ## Docker
 
 The image bundles the verified INT8 and face models and downloads the verified
-FP32 model and CPU-only ONNX Runtime during the build. All models are included
-on `linux/amd64` and `linux/arm64`; U²-Net precision selection is by
-environment, not architecture.
+FP32 model and CPU-only ONNX Runtime during the build. FocalNet weights are
+optional in PR images: `make model-focalnet` verifies the published graph and
+stages it at `models/optional/focalnet-human.onnx`. Docker copies that file
+only when its SHA-256 matches `2026-09-14-rc1`. The contract dummy is never
+accepted. The default `MODEL_BACKEND=u2net` still works if the file is absent;
+`MODEL_BACKEND=focalnet` fails at startup. Release images set
+`REQUIRE_FOCALNET_MODEL=1` so they cannot publish without the real weights.
+U²-Net precision selection is by environment, not architecture.
 
 ```sh
 docker build -t autogravity .
 docker run --rm -p 8080:8080 autogravity
 # Select FP32 without rebuilding:
 docker run --rm -p 8080:8080 -e MODEL_PRECISION=fp32 autogravity
+# Use the published FocalNet human-ranking model:
+docker run --rm -p 8080:8080 -e MODEL_BACKEND=focalnet autogravity
 ```
 
 ### Container releases
@@ -178,12 +186,14 @@ stretching or cropping. Padding is excluded from the calculation. Pixels
 reaching at least half the peak activation are grouped into connected regions,
 and the region with the greatest total saliency supplies the fallback point.
 
-`source` is `face` or `saliency`. `confidence` is the selected model's score:
-YuNet's face score for `face`, or the peak fused-map activation for `saliency`.
-Scores are clamped to `[0.0, 1.0]` but are not calibrated probabilities and
-should not be compared across sources. Face detection does not perform identity
-recognition. Blurred, obscured, or highly stylized faces may use the saliency
-fallback.
+`source` is `face` or `saliency` on the default U²-Net backend, or `focalnet`
+when `MODEL_BACKEND=focalnet`. `confidence` is the selected model's score:
+YuNet's face score for `face`, the peak fused-map activation for `saliency`, or
+the restored importance-map peak for `focalnet`. FocalNet responses also include
+`crop`, the selected pixel rectangle. Scores are clamped to
+`[0.0, 1.0]` but are not calibrated probabilities and should not be compared
+across sources. Face detection does not perform identity recognition. Blurred,
+obscured, or highly stylized faces may use the saliency fallback.
 
 Requests default to a 10 MiB body limit, configured with `MAX_REQUEST_SIZE`
 (`10MiB`, `10485760`, or another positive byte size), and decoded images to 48
@@ -191,6 +201,51 @@ megapixels. Separate upload and analysis admission limits bound buffered-body
 and decoded-image memory without allowing slow uploads to reserve inference
 capacity. Both models are loaded once at startup and their inference sessions
 are reused safely across requests.
+
+## FocalNet backend
+
+[FocalNet](https://github.com/appwrite/focalnet) publishes a format-v2 human
+crop-ranking ONNX graph. Set `MODEL_BACKEND=focalnet` to load
+`models/focalnet-human.onnx` instead of YuNet + U²-Net. YuNet is not run;
+faces are already fused into the 64×64 importance map. `/analyze` generates
+the same candidate crops as FocalNet's Python runtime, scores them with the
+trained ranking head, keeps candidates within 0.05 of the best importance
+retention, and returns the selected crop's center as `gravity`.
+
+The evaluated artifact is the FocalNet GitHub release `2026-09-14-rc1`
+(`focalnet-human.onnx`, SHA-256
+`59164c601c98cea3f62b25166710831dac63e1a872fc64767c65316ad5385439`).
+It is not vendored in git. Download it with `make model-focalnet`, then:
+
+```sh
+export MODEL_BACKEND=focalnet
+./autogravity
+```
+
+Pass `?aspect_ratio=16:9` (or a positive float such as `1.5`) to rank a
+non-square crop. The default is `1:1`. Example response:
+
+```json
+{
+  "gravity": { "x": 0.52, "y": 0.41 },
+  "confidence": 0.91,
+  "source": "focalnet",
+  "crop": {
+    "left": 120,
+    "top": 40,
+    "width": 480,
+    "height": 480,
+    "retained_importance": 0.88
+  }
+}
+```
+
+The ONNX contract is RGB NCHW `image` `[1,3,256,256]`, padded `boxes`
+`[1,128,4]`, letterbox `content` `[1,4]` in, and `importance` `[1,1,64,64]`
+plus `crop_scores` `[1,128]` out. Autogravity unpads the letterboxed map,
+applies FocalNet's candidate and retention-gate ranking, and uses the
+selected crop center as the gravity point. Preprocessing matches FocalNet's
+Python runtime (`imaging.py`) via the existing Go letterbox path at 256×256.
 
 ## Telemetry and shutdown
 
