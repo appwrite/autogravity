@@ -3,7 +3,7 @@ export const SITE = {
   title: 'autogravity docs',
   url: 'https://6a9e5e660013e2481b3d.appwrite.network',
   description:
-    "Image focal-point detection as a microservice. Post an image, get back one coordinate pair: the weighted centre of the strongest salient region.",
+    "Image focal-point detection as a microservice. Post an image, get back a crop focus from YuNet + U²-Net, or from Appwrite's own FocalNet model.",
   tagline: 'Find the subject. Crop nothing.',
   github: 'https://github.com/appwrite/autogravity',
   appwrite: 'https://appwrite.io',
@@ -15,6 +15,7 @@ export const NAV = {
   start: [
     { href: '#overview', label: 'Overview' },
     { href: '#face-priority', label: 'Face priority' },
+    { href: '#focalnet', label: 'FocalNet' },
     { href: '#preview', label: 'Storage preview' },
     { href: '#install', label: 'Install' },
     { href: '#config', label: 'Configuration' },
