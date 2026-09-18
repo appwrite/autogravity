@@ -356,6 +356,18 @@ a:hover {
   color: var(--muted);
 }
 
+.doc-copy a,
+.doc-lead a {
+  color: var(--pink-soft);
+  text-decoration: underline;
+  text-underline-offset: 0.18em;
+}
+
+.doc-copy a:hover,
+.doc-lead a:hover {
+  color: var(--aw-pink);
+}
+
 .doc-copy--flush {
   max-width: none;
 }
@@ -884,6 +896,7 @@ a:hover {
 }
 
 .data-table-row .accent {
+  overflow-wrap: anywhere;
   color: var(--fg);
   font-family: var(--font-mono);
   font-size: 0.8125rem;

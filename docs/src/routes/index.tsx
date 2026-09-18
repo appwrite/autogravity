@@ -21,12 +21,13 @@ function DocsPage() {
           <p className="doc-lead">
             A small Go HTTP service that finds the best crop focus in an image.
             It prioritizes confidently detected faces with YuNet, then falls
-            back to U²-Net saliency. It never crops, stores, identifies, or
-            modifies the submitted image.
+            back to U²-Net saliency. You can also switch to Appwrite&apos;s
+            FocalNet model. It never crops, stores, identifies, or modifies the
+            submitted image.
           </p>
           <div className="pill-row">
             <span className="pill">Face-first · saliency fallback</span>
-            <span className="pill">JPEG · PNG · WebP</span>
+            <span className="pill">JPEG · PNG · WebP · GIF</span>
             <span className="pill">CPU-only</span>
           </div>
         </section>
@@ -43,6 +44,28 @@ function DocsPage() {
             primary face, and each crosshair is the returned normalized gravity
             coordinate. No identity recognition is performed.
           </p>
+        </section>
+
+        <section id="focalnet" className="doc-section">
+          <SectionTitle
+            kicker="How it works"
+            title="Appwrite's FocalNet model"
+            lead="FocalNet is Appwrite's own model. It picks a crop and uses the crop's center as the focal point, without a separate face detector."
+          />
+          <CodePanel label="Run FocalNet">
+            <code>
+              <span className="prompt">$ </span>make model-focalnet
+              {'\n'}
+              <span className="prompt">$ </span>MODEL_BACKEND=focalnet
+              ./autogravity
+              {'\n'}
+              <span className="prompt">$ </span>docker run --rm -p 8080:8080 \
+              {'\n'}
+              {'    '}-e MODEL_BACKEND=focalnet \
+              {'\n'}
+              {'    '}ghcr.io/appwrite/autogravity
+            </code>
+          </CodePanel>
         </section>
 
         <section id="preview" className="doc-section">
@@ -84,7 +107,8 @@ function DocsPage() {
           <p className="doc-copy">
             Or build from source with Go 1.25 or newer.{' '}
             <InlineCode>make model</InlineCode> downloads and verifies the ONNX
-            models.
+            models. Use <InlineCode>make model-focalnet</InlineCode> if you want
+            Appwrite&apos;s FocalNet weights.
           </p>
           <CodePanel label="Source">
             <code>
@@ -115,6 +139,13 @@ function DocsPage() {
               <span className="accent">u2net</span>
               <span className="data-table-desc">
                 u2net (YuNet + U²-Net) or focalnet
+              </span>
+            </div>
+            <div className="data-table-row">
+              <span className="accent">MODEL_PRECISION</span>
+              <span className="accent">int8</span>
+              <span className="data-table-desc">
+                int8 or fp32 for the U²-Net backend
               </span>
             </div>
             <div className="data-table-row">
@@ -155,13 +186,13 @@ function DocsPage() {
           <SectionTitle
             kicker="Reference"
             title="API"
-            lead="Send a JPEG, PNG, or WebP image as a multipart image field, or as the raw request body."
+            lead="Send a JPEG, PNG, WebP, or GIF image as a multipart image field, or as the raw request body."
           />
 
           <HttpEndpoint
             method="POST"
             path="/analyze"
-            description="Returns a prioritized face center or the strongest salient region's weighted focal point."
+            description="Returns a face center, a saliency focal point, or a FocalNet crop center."
           />
 
           <div className="code-grid">
@@ -228,12 +259,50 @@ function DocsPage() {
               applied before analysis. On the default backend a reliable face
               supplies its bounding-box center; otherwise U²-Net supplies the
               saliency centroid. Set <InlineCode>MODEL_BACKEND=focalnet</InlineCode>{' '}
-              to use the distilled importance model instead —{' '}
-              <InlineCode>source</InlineCode> is then <InlineCode>focalnet</InlineCode>{' '}
-              and YuNet is not consulted. Confidence is that strategy&apos;s
-              model score, not an identity match or a calibrated probability.
+              to use Appwrite&apos;s model instead.{' '}
+              <InlineCode>source</InlineCode> is then{' '}
+              <InlineCode>focalnet</InlineCode> and the response includes a{' '}
+              <InlineCode>crop</InlineCode> rectangle. Confidence is that
+              strategy&apos;s model score, not an identity match or a calibrated
+              probability.
             </p>
           </div>
+
+          <CodePanel label="FocalNet request">
+            <code>
+              curl -sS -X POST \{'\n'}
+              {'  '}http://localhost:8080/analyze?aspect_ratio=16:9 \{'\n'}
+              {'  '}-F <span className="str">'image=@photo.jpg'</span>
+            </code>
+          </CodePanel>
+          <CodePanel label="FocalNet response">
+            <code>
+              {'{'}{'\n'}
+              {'  '}<span className="key">"gravity"</span>: {'{'}{'\n'}
+              {'    '}<span className="key">"x"</span>:{' '}
+              <span className="num">0.52</span>,{'\n'}
+              {'    '}<span className="key">"y"</span>:{' '}
+              <span className="num">0.41</span>{'\n'}
+              {'  '}{'}'},{'\n'}
+              {'  '}<span className="key">"confidence"</span>:{' '}
+              <span className="num">0.91</span>,{'\n'}
+              {'  '}<span className="key">"source"</span>:{' '}
+              <span className="str">"focalnet"</span>,{'\n'}
+              {'  '}<span className="key">"crop"</span>: {'{'}{'\n'}
+              {'    '}<span className="key">"left"</span>:{' '}
+              <span className="num">120</span>,{'\n'}
+              {'    '}<span className="key">"top"</span>:{' '}
+              <span className="num">40</span>,{'\n'}
+              {'    '}<span className="key">"width"</span>:{' '}
+              <span className="num">480</span>,{'\n'}
+              {'    '}<span className="key">"height"</span>:{' '}
+              <span className="num">270</span>,{'\n'}
+              {'    '}<span className="key">"retained_importance"</span>:{' '}
+              <span className="num">0.88</span>{'\n'}
+              {'  '}{'}'}{'\n'}
+              {'}'}
+            </code>
+          </CodePanel>
 
           <HttpEndpoint
             method="GET"

@@ -4,9 +4,10 @@
 
 `autogravity` is a small Go HTTP service that finds the best crop focus in an
 image. It prioritizes a confidently detected face using YuNet, then falls back
-to the weighted centroid of the strongest U²-Net salient region. Results are
-normalized X/Y coordinates. It never crops, stores, identifies, or modifies the
-submitted image.
+to the weighted centroid of the strongest U²-Net salient region. Set
+`MODEL_BACKEND=focalnet` to use [FocalNet](https://github.com/appwrite/focalnet),
+Appwrite's own model, instead. Results are normalized X/Y coordinates. It never
+crops, stores, identifies, or modifies the submitted image.
 
 ## Requirements
 
@@ -14,6 +15,8 @@ submitted image.
 - The included INT8 U²-Net model (approximately 42 MiB) and YuNet face detector
   (approximately 230 KiB). `make model` verifies them and downloads/verifies the
   FP32 U²-Net fallback (approximately 168 MiB).
+- Optional: Appwrite's FocalNet model (approximately 19 MiB). Download it with
+  `make model-focalnet`.
 - An ONNX Runtime shared library. Version 1.23.2 is used by the Docker image and
   matches the pinned Go binding.
 
@@ -32,6 +35,10 @@ export ONNXRUNTIME_LIB=/absolute/path/to/libonnxruntime.dylib  # macOS
 make model
 make build
 ./autogravity
+
+# Optional: Appwrite's FocalNet backend
+make model-focalnet
+MODEL_BACKEND=focalnet ./autogravity
 ```
 
 The server listens on `:8080`. These environment variables are available:
@@ -39,7 +46,7 @@ The server listens on `:8080`. These environment variables are available:
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `ADDR` | `:8080` | HTTP listen address |
-| `MODEL_BACKEND` | `u2net` | `u2net` (YuNet + U²-Net) or `focalnet` (published human-ranking model) |
+| `MODEL_BACKEND` | `u2net` | `u2net` (YuNet + U²-Net) or `focalnet` (Appwrite's model) |
 | `MODEL_PRECISION` | `int8` | `int8` or `fp32` for the U²-Net backend |
 | `MODEL_PATH` | unset | Explicit model path; overrides `MODEL_PRECISION` / FocalNet default |
 | `FACE_MODEL_PATH` | `models/face_detection_yunet_2023mar.onnx` | YuNet face-detection model path (U²-Net backend only) |
@@ -98,11 +105,10 @@ the tighter constraint.
 
 The image bundles the verified INT8 and face models and downloads the verified
 FP32 model and CPU-only ONNX Runtime during the build. FocalNet weights are
-optional in PR images: `make model-focalnet` verifies the published graph and
-stages it at `models/optional/focalnet-human.onnx`. Docker copies that file
-only when its SHA-256 matches `2026-09-14-rc1`. The contract dummy is never
-accepted. The default `MODEL_BACKEND=u2net` still works if the file is absent;
-`MODEL_BACKEND=focalnet` fails at startup. Release images set
+optional in PR images: `make model-focalnet` downloads them and stages a copy
+at `models/optional/focalnet-human.onnx`. Docker copies that file only when its
+SHA-256 matches. The default `MODEL_BACKEND=u2net` still works if the file is
+absent; `MODEL_BACKEND=focalnet` fails at startup. Release images set
 `REQUIRE_FOCALNET_MODEL=1` so they cannot publish without the real weights.
 U²-Net precision selection is by environment, not architecture.
 
@@ -111,7 +117,7 @@ docker build -t autogravity .
 docker run --rm -p 8080:8080 autogravity
 # Select FP32 without rebuilding:
 docker run --rm -p 8080:8080 -e MODEL_PRECISION=fp32 autogravity
-# Use the published FocalNet human-ranking model:
+# Use Appwrite's FocalNet model:
 docker run --rm -p 8080:8080 -e MODEL_BACKEND=focalnet autogravity
 ```
 
@@ -204,26 +210,23 @@ are reused safely across requests.
 
 ## FocalNet backend
 
-[FocalNet](https://github.com/appwrite/focalnet) publishes a format-v2 human
-crop-ranking ONNX graph. Set `MODEL_BACKEND=focalnet` to load
-`models/focalnet-human.onnx` instead of YuNet + U²-Net. YuNet is not run;
-faces are already fused into the 64×64 importance map. `/analyze` generates
-the same candidate crops as FocalNet's Python runtime, scores them with the
-trained ranking head, keeps candidates within 0.05 of the best importance
-retention, and returns the selected crop's center as `gravity`.
+[FocalNet](https://github.com/appwrite/focalnet) is Appwrite's own model. Set
+`MODEL_BACKEND=focalnet` to load `models/focalnet-human.onnx` instead of YuNet +
+U²-Net. It picks a crop and returns that crop's center as `gravity`. Faces are
+already part of the model, so YuNet is not run.
 
-The evaluated artifact is the FocalNet GitHub release `2026-09-14-rc1`
+The weights come from the public FocalNet GitHub release `2026-09-14-rc1`
 (`focalnet-human.onnx`, SHA-256
 `59164c601c98cea3f62b25166710831dac63e1a872fc64767c65316ad5385439`).
-It is not vendored in git. Download it with `make model-focalnet`, then:
+They are not stored in git. Download them with `make model-focalnet`, then:
 
 ```sh
 export MODEL_BACKEND=focalnet
 ./autogravity
 ```
 
-Pass `?aspect_ratio=16:9` (or a positive float such as `1.5`) to rank a
-non-square crop. The default is `1:1`. Example response:
+Pass `?aspect_ratio=16:9` (or a positive number such as `1.5`) for a non-square crop.
+The default is `1:1`. Example response:
 
 ```json
 {
@@ -234,18 +237,14 @@ non-square crop. The default is `1:1`. Example response:
     "left": 120,
     "top": 40,
     "width": 480,
-    "height": 480,
+    "height": 270,
     "retained_importance": 0.88
   }
 }
 ```
 
-The ONNX contract is RGB NCHW `image` `[1,3,256,256]`, padded `boxes`
-`[1,128,4]`, letterbox `content` `[1,4]` in, and `importance` `[1,1,64,64]`
-plus `crop_scores` `[1,128]` out. Autogravity unpads the letterboxed map,
-applies FocalNet's candidate and retention-gate ranking, and uses the
-selected crop center as the gravity point. Preprocessing matches FocalNet's
-Python runtime (`imaging.py`) via the existing Go letterbox path at 256×256.
+See [models/README.md](models/README.md) for the ONNX contract and checksum
+details.
 
 ## Telemetry and shutdown
 
