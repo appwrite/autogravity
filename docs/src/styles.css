@@ -896,6 +896,7 @@ a:hover {
 }
 
 .data-table-row .accent {
+  overflow-wrap: anywhere;
   color: var(--fg);
   font-family: var(--font-mono);
   font-size: 0.8125rem;
