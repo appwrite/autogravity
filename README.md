@@ -225,8 +225,8 @@ export MODEL_BACKEND=focalnet
 ./autogravity
 ```
 
-Pass `?aspect_ratio=16:9` (or a positive float such as `1.5`) to rank a
-non-square crop. The default is `1:1`. Example response:
+Pass `?aspect_ratio=16:9` (or a number such as `1.5`) for a non-square crop.
+The default is `1:1`. Example response:
 
 ```json
 {
@@ -237,7 +237,7 @@ non-square crop. The default is `1:1`. Example response:
     "left": 120,
     "top": 40,
     "width": 480,
-    "height": 480,
+    "height": 270,
     "retained_importance": 0.88
   }
 }

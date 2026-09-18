@@ -51,7 +51,7 @@ function DocsPage() {
           <SectionTitle
             kicker="How it works"
             title="Appwrite's FocalNet model"
-            lead="FocalNet is Appwrite's own model. It picks a crop and a focal point in one pass, without a separate face detector."
+            lead="FocalNet is Appwrite's own model. It picks a crop and uses the crop's center as the focal point, without a separate face detector."
           />
           <p className="doc-copy">
             The default path is still YuNet + U²-Net. Set{' '}
@@ -312,7 +312,7 @@ function DocsPage() {
               {'    '}<span className="key">"width"</span>:{' '}
               <span className="num">480</span>,{'\n'}
               {'    '}<span className="key">"height"</span>:{' '}
-              <span className="num">480</span>,{'\n'}
+              <span className="num">270</span>,{'\n'}
               {'    '}<span className="key">"retained_importance"</span>:{' '}
               <span className="num">0.88</span>{'\n'}
               {'  '}{'}'}{'\n'}
