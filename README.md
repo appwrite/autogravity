@@ -225,7 +225,7 @@ export MODEL_BACKEND=focalnet
 ./autogravity
 ```
 
-Pass `?aspect_ratio=16:9` (or a number such as `1.5`) for a non-square crop.
+Pass `?aspect_ratio=16:9` (or a positive number such as `1.5`) for a non-square crop.
 The default is `1:1`. Example response:
 
 ```json
