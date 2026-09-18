@@ -76,9 +76,11 @@ function DocsPage() {
               <span className="prompt">$ </span>MODEL_BACKEND=focalnet
               ./autogravity
               {'\n'}
-              <span className="prompt">$ </span>docker run --rm -p 8080:8080 -e
-              {' '}
-              MODEL_BACKEND=focalnet ghcr.io/appwrite/autogravity
+              <span className="prompt">$ </span>docker run --rm -p 8080:8080 \
+              {'\n'}
+              {'    '}-e MODEL_BACKEND=focalnet \
+              {'\n'}
+              {'    '}ghcr.io/appwrite/autogravity
             </code>
           </CodePanel>
           <div className="data-table">
@@ -320,43 +322,41 @@ function DocsPage() {
             </p>
           </div>
 
-          <div className="code-grid">
-            <CodePanel label="FocalNet request">
-              <code>
-                curl -sS -X POST \{'\n'}
-                {'  '}http://localhost:8080/analyze?aspect_ratio=16:9 \{'\n'}
-                {'  '}-F <span className="str">'image=@photo.jpg'</span>
-              </code>
-            </CodePanel>
-            <CodePanel label="FocalNet response">
-              <code>
-                {'{'}{'\n'}
-                {'  '}<span className="key">"gravity"</span>: {'{'}{'\n'}
-                {'    '}<span className="key">"x"</span>:{' '}
-                <span className="num">0.52</span>,{'\n'}
-                {'    '}<span className="key">"y"</span>:{' '}
-                <span className="num">0.41</span>{'\n'}
-                {'  '}{'}'},{'\n'}
-                {'  '}<span className="key">"confidence"</span>:{' '}
-                <span className="num">0.91</span>,{'\n'}
-                {'  '}<span className="key">"source"</span>:{' '}
-                <span className="str">"focalnet"</span>,{'\n'}
-                {'  '}<span className="key">"crop"</span>: {'{'}{'\n'}
-                {'    '}<span className="key">"left"</span>:{' '}
-                <span className="num">120</span>,{'\n'}
-                {'    '}<span className="key">"top"</span>:{' '}
-                <span className="num">40</span>,{'\n'}
-                {'    '}<span className="key">"width"</span>:{' '}
-                <span className="num">480</span>,{'\n'}
-                {'    '}<span className="key">"height"</span>:{' '}
-                <span className="num">480</span>,{'\n'}
-                {'    '}<span className="key">"retained_importance"</span>:{' '}
-                <span className="num">0.88</span>{'\n'}
-                {'  '}{'}'}{'\n'}
-                {'}'}
-              </code>
-            </CodePanel>
-          </div>
+          <CodePanel label="FocalNet request">
+            <code>
+              curl -sS -X POST \{'\n'}
+              {'  '}http://localhost:8080/analyze?aspect_ratio=16:9 \{'\n'}
+              {'  '}-F <span className="str">'image=@photo.jpg'</span>
+            </code>
+          </CodePanel>
+          <CodePanel label="FocalNet response">
+            <code>
+              {'{'}{'\n'}
+              {'  '}<span className="key">"gravity"</span>: {'{'}{'\n'}
+              {'    '}<span className="key">"x"</span>:{' '}
+              <span className="num">0.52</span>,{'\n'}
+              {'    '}<span className="key">"y"</span>:{' '}
+              <span className="num">0.41</span>{'\n'}
+              {'  '}{'}'},{'\n'}
+              {'  '}<span className="key">"confidence"</span>:{' '}
+              <span className="num">0.91</span>,{'\n'}
+              {'  '}<span className="key">"source"</span>:{' '}
+              <span className="str">"focalnet"</span>,{'\n'}
+              {'  '}<span className="key">"crop"</span>: {'{'}{'\n'}
+              {'    '}<span className="key">"left"</span>:{' '}
+              <span className="num">120</span>,{'\n'}
+              {'    '}<span className="key">"top"</span>:{' '}
+              <span className="num">40</span>,{'\n'}
+              {'    '}<span className="key">"width"</span>:{' '}
+              <span className="num">480</span>,{'\n'}
+              {'    '}<span className="key">"height"</span>:{' '}
+              <span className="num">480</span>,{'\n'}
+              {'    '}<span className="key">"retained_importance"</span>:{' '}
+              <span className="num">0.88</span>{'\n'}
+              {'  '}{'}'}{'\n'}
+              {'}'}
+            </code>
+          </CodePanel>
 
           <HttpEndpoint
             method="GET"
