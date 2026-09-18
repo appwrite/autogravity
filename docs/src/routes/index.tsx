@@ -111,9 +111,18 @@ function DocsPage() {
               <span className="data-table-desc">HTTP listen address</span>
             </div>
             <div className="data-table-row">
+              <span className="accent">MODEL_BACKEND</span>
+              <span className="accent">u2net</span>
+              <span className="data-table-desc">
+                u2net (YuNet + U²-Net) or focalnet
+              </span>
+            </div>
+            <div className="data-table-row">
               <span className="accent">MODEL_PATH</span>
               <span className="accent">unset</span>
-              <span className="data-table-desc">U²-Net model path</span>
+              <span className="data-table-desc">
+                Explicit ONNX path; overrides precision / FocalNet default
+              </span>
             </div>
             <div className="data-table-row">
               <span className="accent">FACE_MODEL_PATH</span>
@@ -216,11 +225,13 @@ function DocsPage() {
             <p className="doc-copy doc-copy--flush">
               Coordinates are in <InlineCode>[0.0, 1.0]</InlineCode>, measured
               from the oriented image&apos;s top-left corner. EXIF orientation is
-              applied before analysis. A reliable face supplies its bounding-box
-              center; otherwise U²-Net supplies the saliency centroid. The{' '}
-              <InlineCode>source</InlineCode> field identifies which strategy was
-              selected. Confidence is that strategy&apos;s model score, not an
-              identity match or a calibrated probability.
+              applied before analysis. On the default backend a reliable face
+              supplies its bounding-box center; otherwise U²-Net supplies the
+              saliency centroid. Set <InlineCode>MODEL_BACKEND=focalnet</InlineCode>{' '}
+              to use the distilled importance model instead —{' '}
+              <InlineCode>source</InlineCode> is then <InlineCode>focalnet</InlineCode>{' '}
+              and YuNet is not consulted. Confidence is that strategy&apos;s
+              model score, not an identity match or a calibrated probability.
             </p>
           </div>
 
