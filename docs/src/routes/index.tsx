@@ -27,7 +27,6 @@ function DocsPage() {
           </p>
           <div className="pill-row">
             <span className="pill">Face-first · saliency fallback</span>
-            <span className="pill">FocalNet backend</span>
             <span className="pill">JPEG · PNG · WebP · GIF</span>
             <span className="pill">CPU-only</span>
           </div>
@@ -53,21 +52,6 @@ function DocsPage() {
             title="Appwrite's FocalNet model"
             lead="FocalNet is Appwrite's own model. It picks a crop and uses the crop's center as the focal point, without a separate face detector."
           />
-          <p className="doc-copy">
-            The default path is still YuNet + U²-Net. Set{' '}
-            <InlineCode>MODEL_BACKEND=focalnet</InlineCode> after{' '}
-            <InlineCode>make model-focalnet</InlineCode> to switch. Pass{' '}
-            <InlineCode>?aspect_ratio=16:9</InlineCode> for a widescreen crop;
-            the default is <InlineCode>1:1</InlineCode>. See{' '}
-            <a
-              href="https://github.com/appwrite/focalnet"
-              target="_blank"
-              rel="noreferrer"
-            >
-              appwrite/focalnet
-            </a>{' '}
-            for the model itself.
-          </p>
           <CodePanel label="Run FocalNet">
             <code>
               <span className="prompt">$ </span>make model-focalnet
