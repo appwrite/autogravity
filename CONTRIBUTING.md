@@ -39,9 +39,8 @@ weights. Candidate generation, letterbox
 `content`, and the retention-gated ranking path are checked against FocalNet
 Python goldens.
 
-`make model-focalnet` downloads Appwrite's public FocalNet human-ranking
-weights for local `MODEL_BACKEND=focalnet` runs. Those 19 MiB weights are not
-required for the default test or integration suites.
+`make model-focalnet` downloads FocalNet weights for local runs. They are not
+required for the default tests.
 
 To also run the real YuNet and U²-Net models:
 

@@ -20,11 +20,10 @@ function DocsPage() {
           <h1 className="doc-h1">Focal points, as a service.</h1>
           <p className="doc-lead">
             A small Go HTTP service that finds the best crop focus in an image.
-            The default backend prioritizes confidently detected faces with
-            YuNet, then falls back to U²-Net saliency.{' '}
-            <InlineCode>MODEL_BACKEND=focalnet</InlineCode> switches to
-            Appwrite&apos;s own compact FocalNet model. It never crops, stores,
-            identifies, or modifies the submitted image.
+            It prioritizes confidently detected faces with YuNet, then falls
+            back to U²-Net saliency. You can also switch to Appwrite&apos;s
+            FocalNet model. It never crops, stores, identifies, or modifies the
+            submitted image.
           </p>
           <div className="pill-row">
             <span className="pill">Face-first · saliency fallback</span>
@@ -38,7 +37,7 @@ function DocsPage() {
           <SectionTitle
             kicker="How it works"
             title="Face-first, with a safe fallback"
-            lead="The default backend runs YuNet first. A reliable face becomes the focal point immediately; without one, the same U²-Net saliency path continues unchanged. These comparisons use real model output from the integration fixtures."
+            lead="The current pipeline runs YuNet first. A reliable face becomes the focal point immediately; without one, the same U²-Net saliency path continues unchanged. These comparisons use real model output from the integration fixtures."
           />
           <FacePriorityDemo />
           <p className="doc-footnote">
@@ -52,22 +51,22 @@ function DocsPage() {
           <SectionTitle
             kicker="How it works"
             title="Appwrite's FocalNet model"
-            lead="FocalNet distills Autogravity's YuNet + U²-Net teacher into one 19 MiB FP32 ONNX. It predicts a 64×64 importance map, ranks candidate crops with a human-preference head, and returns the selected crop center. Faces are fused into the map; YuNet is not run on this path."
+            lead="FocalNet is Appwrite's own model. It picks a crop and a focal point in one pass, without a separate face detector."
           />
           <p className="doc-copy">
-            The default production backend stays YuNet + U²-Net. Set{' '}
+            The default path is still YuNet + U²-Net. Set{' '}
             <InlineCode>MODEL_BACKEND=focalnet</InlineCode> after{' '}
-            <InlineCode>make model-focalnet</InlineCode> to load the public{' '}
-            <InlineCode>2026-09-14-rc1</InlineCode> weights from{' '}
+            <InlineCode>make model-focalnet</InlineCode> to switch. Pass{' '}
+            <InlineCode>?aspect_ratio=16:9</InlineCode> for a widescreen crop;
+            the default is <InlineCode>1:1</InlineCode>. See{' '}
             <a
               href="https://github.com/appwrite/focalnet"
               target="_blank"
               rel="noreferrer"
             >
               appwrite/focalnet
-            </a>
-            . Pass <InlineCode>?aspect_ratio=16:9</InlineCode> to rank a
-            non-square crop; the default is <InlineCode>1:1</InlineCode>.
+            </a>{' '}
+            for the model itself.
           </p>
           <CodePanel label="Run FocalNet">
             <code>
@@ -83,33 +82,6 @@ function DocsPage() {
               {'    '}ghcr.io/appwrite/autogravity
             </code>
           </CodePanel>
-          <div className="data-table">
-            <div className="data-table-head">
-              <span>Backend</span>
-              <span>Models</span>
-              <span>Result</span>
-            </div>
-            <div className="data-table-row">
-              <span className="accent">u2net</span>
-              <span className="accent">YuNet + U²-Net</span>
-              <span className="data-table-desc">
-                Face center, or saliency centroid. Default.
-              </span>
-            </div>
-            <div className="data-table-row">
-              <span className="accent">focalnet</span>
-              <span className="accent">focalnet-human.onnx</span>
-              <span className="data-table-desc">
-                Ranked crop center plus crop rectangle. Optional.
-              </span>
-            </div>
-          </div>
-          <p className="doc-footnote">
-            FocalNet reports map MAE 0.09975 and 91.09% 1:1 importance retained
-            against the teacher on a 10k validation split. Those figures are
-            teacher-agreement, not a guarantee that Autogravity traffic will
-            match the face-priority backend.
-          </p>
         </section>
 
         <section id="preview" className="doc-section">
@@ -135,7 +107,7 @@ function DocsPage() {
           <SectionTitle
             kicker="Start"
             title="Install"
-            lead="Fastest path is Docker. The image includes verified YuNet and U²-Net models plus the CPU-only ONNX Runtime library. Release images also bundle FocalNet; PR images may omit it."
+            lead="Fastest path is Docker. The image includes verified YuNet and U²-Net models plus the CPU-only ONNX Runtime library."
           />
           <CodePanel label="Docker">
             <code>
@@ -150,10 +122,9 @@ function DocsPage() {
           </CodePanel>
           <p className="doc-copy">
             Or build from source with Go 1.25 or newer.{' '}
-            <InlineCode>make model</InlineCode> downloads and verifies the
-            default ONNX models.{' '}
-            <InlineCode>make model-focalnet</InlineCode> downloads Appwrite&apos;s
-            FocalNet weights.
+            <InlineCode>make model</InlineCode> downloads and verifies the ONNX
+            models. Use <InlineCode>make model-focalnet</InlineCode> if you want
+            Appwrite&apos;s FocalNet weights.
           </p>
           <CodePanel label="Source">
             <code>
@@ -162,11 +133,6 @@ function DocsPage() {
               <span className="prompt">$ </span>make build
               {'\n'}
               <span className="prompt">$ </span>./autogravity
-              {'\n'}
-              <span className="prompt">$ </span>make model-focalnet
-              {'\n'}
-              <span className="prompt">$ </span>MODEL_BACKEND=focalnet
-              ./autogravity
             </code>
           </CodePanel>
         </section>
@@ -188,7 +154,7 @@ function DocsPage() {
               <span className="accent">MODEL_BACKEND</span>
               <span className="accent">u2net</span>
               <span className="data-table-desc">
-                u2net (YuNet + U²-Net) or focalnet (Appwrite&apos;s model)
+                u2net (YuNet + U²-Net) or focalnet
               </span>
             </div>
             <div className="data-table-row">
@@ -208,16 +174,12 @@ function DocsPage() {
             <div className="data-table-row">
               <span className="accent">FACE_MODEL_PATH</span>
               <span className="accent">models/face_detection_yunet_2023mar.onnx</span>
-              <span className="data-table-desc">
-                YuNet model path (U²-Net backend only)
-              </span>
+              <span className="data-table-desc">YuNet model path</span>
             </div>
             <div className="data-table-row">
               <span className="accent">FACE_SCORE_THRESHOLD</span>
               <span className="accent">0.85</span>
-              <span className="data-table-desc">
-                Minimum reliable face score (U²-Net backend only)
-              </span>
+              <span className="data-table-desc">Minimum reliable face score</span>
             </div>
             <div className="data-table-row">
               <span className="accent">ONNXRUNTIME_LIB</span>
@@ -246,7 +208,7 @@ function DocsPage() {
           <HttpEndpoint
             method="POST"
             path="/analyze"
-            description="Returns a prioritized face center, the strongest salient region's weighted focal point, or a FocalNet-ranked crop center."
+            description="Returns a face center, a saliency focal point, or a FocalNet crop center."
           />
 
           <div className="code-grid">
@@ -313,12 +275,12 @@ function DocsPage() {
               applied before analysis. On the default backend a reliable face
               supplies its bounding-box center; otherwise U²-Net supplies the
               saliency centroid. Set <InlineCode>MODEL_BACKEND=focalnet</InlineCode>{' '}
-              to use Appwrite&apos;s human-ranking model instead.{' '}
+              to use Appwrite&apos;s model instead.{' '}
               <InlineCode>source</InlineCode> is then{' '}
-              <InlineCode>focalnet</InlineCode>, YuNet is not consulted, and the
-              response includes a <InlineCode>crop</InlineCode> rectangle.
-              Confidence is that strategy&apos;s model score, not an identity
-              match or a calibrated probability.
+              <InlineCode>focalnet</InlineCode> and the response includes a{' '}
+              <InlineCode>crop</InlineCode> rectangle. Confidence is that
+              strategy&apos;s model score, not an identity match or a calibrated
+              probability.
             </p>
           </div>
 
@@ -376,8 +338,7 @@ function DocsPage() {
             Separate upload and analysis admission limits bound buffered-body and
             decoded-image memory without allowing slow uploads to reserve
             inference capacity. Both models are loaded once at startup and their
-            inference sessions are reused across requests. FocalNet loads a
-            single session instead of YuNet + U²-Net.
+            inference sessions are reused across requests.
           </p>
         </section>
 
@@ -403,10 +364,8 @@ function DocsPage() {
           <p className="doc-footnote">
             Historical U²-Net fallback timings on Apple M3 Pro, CPU-only ONNX
             Runtime 1.23.2, Go 1.25.14. Median of five sequential benchmark
-            samples. Face-selected requests skip U²-Net. FocalNet is a 19 MiB
-            FP32 graph versus ~42 MiB INT8 U²-Net plus YuNet; measure it on
-            your deploy target. Performance varies with hardware and input
-            images.
+            samples. Face-selected requests skip U²-Net. Performance varies with
+            hardware and input images.
           </p>
         </section>
       </main>

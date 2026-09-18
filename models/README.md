@@ -50,9 +50,8 @@ obscured faces may not reach the threshold.
 
 ## FocalNet
 
-FocalNet is Appwrite's own compact crop-ranking model, used when
-`MODEL_BACKEND=focalnet`. The human-ranking graph is `focalnet-human.onnx` from
-the public
+FocalNet is Appwrite's own model, used when `MODEL_BACKEND=focalnet`. The
+weights are `focalnet-human.onnx` from the public
 [FocalNet `2026-09-14-rc1` release](https://github.com/appwrite/focalnet/releases/tag/2026-09-14-rc1)
 (20,398,992 bytes). `make model-focalnet` downloads it, verifies this SHA-256,
 and stages a copy at `models/optional/focalnet-human.onnx` for Docker:
@@ -69,12 +68,11 @@ contract-compatible placeholder lives at `internal/focalnet/testdata/dummy.onnx`
 for Go tests; it is image-independent and must not be copied into
 `models/focalnet-human.onnx` or a production image. Docker accepts only the
 published checksum above. The artifact is redistributed under the MIT license
-in `FOCALNET_LICENSE`. Training code, ONNX contract, and teacher-agreement
-figures live in [appwrite/focalnet](https://github.com/appwrite/focalnet).
+in `FOCALNET_LICENSE`. See [appwrite/focalnet](https://github.com/appwrite/focalnet)
+for training code and results.
 
-PR image builds still tolerate a missing file so the default U²-Net backend
-starts; they never substitute the dummy. `MODEL_BACKEND=focalnet` fails at
-startup if the file is missing. Published release images require the real
-checksum (`REQUIRE_FOCALNET_MODEL=1`). Run `make model-focalnet` before
-`docker build`, or set repo secret `FOCALNET_GITHUB_TOKEN` if a workflow cannot
-read the public release.
+PR image builds still start without the file. `MODEL_BACKEND=focalnet` fails at
+startup if it is missing. Release images require the real checksum
+(`REQUIRE_FOCALNET_MODEL=1`). Run `make model-focalnet` before `docker build`,
+or set repo secret `FOCALNET_GITHUB_TOKEN` if a workflow cannot download the
+release.
