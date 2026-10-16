@@ -280,3 +280,9 @@ and unchanged expected regions.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, tests, quality
 evaluation, benchmark reproduction, and the project layout.
+
+## License
+
+Autogravity is released under the [MIT License](LICENSE). Bundled models and
+test fixtures keep their own licenses; see [models](models/README.md) and the
+[fixture gallery](internal/testimages/testdata/README.md).
