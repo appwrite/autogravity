@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"image"
+	"image/draw"
 	_ "image/gif"
 	_ "image/jpeg"
 	_ "image/png"
@@ -42,6 +43,13 @@ func Decode(data []byte) (image.Image, error) {
 	img, err := imaging.Decode(bytes.NewReader(data), imaging.AutoOrientation(true))
 	if err != nil {
 		return nil, fmt.Errorf("decode image: %w", err)
+	}
+	// A GIF's first frame may cover only part of its logical screen. Place it
+	// on the full canvas so focal points and crops use whole-image coordinates.
+	if canvas := image.Rect(0, 0, config.Width, config.Height); format == "gif" && img.Bounds() != canvas {
+		full := image.NewNRGBA(canvas)
+		draw.Draw(full, img.Bounds(), img, img.Bounds().Min, draw.Src)
+		img = full
 	}
 	return img, nil
 }
