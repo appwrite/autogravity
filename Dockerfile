@@ -1,4 +1,4 @@
-# syntax=docker/dockerfile:1
+# syntax=docker/dockerfile:1@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e
 
 FROM scratch AS onnxruntime-amd64
 ADD --checksum=sha256:1fa4dcaef22f6f7d5cd81b28c2800414350c10116f5fdd46a2160082551c5f9b \
@@ -10,7 +10,7 @@ ADD --checksum=sha256:7c63c73560ed76b1fac6cff8204ffe34fe180e70d6582b5332ec094810
 
 FROM onnxruntime-${TARGETARCH} AS onnxruntime
 
-FROM golang:1.25-bookworm AS builder
+FROM golang:1.25-bookworm@sha256:3b4a11519ad929d1e1d261a12cff056f0c85b735253d7d861346b9c6f8b36437 AS builder
 ARG VERSION=dev
 ARG COMMIT=unknown
 COPY --from=onnxruntime /onnxruntime.tgz /tmp/onnxruntime.tgz
@@ -43,7 +43,7 @@ RUN CGO_ENABLED=1 go build -trimpath \
     -ldflags="-s -w -X main.version=${VERSION} -X main.commit=${COMMIT}" \
     -o /out/autogravity ./cmd/autogravity
 
-FROM debian:bookworm-slim
+FROM debian:bookworm-slim@sha256:734a72b3d6142a71993b4bc580ca01d8ca687f77a2c422d96a961d3376b179bc
 RUN apt-get update \
     && apt-get install -y --no-install-recommends curl libgomp1 \
     && rm -rf /var/lib/apt/lists/*
