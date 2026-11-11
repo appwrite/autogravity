@@ -10,7 +10,7 @@ ADD --checksum=sha256:7c63c73560ed76b1fac6cff8204ffe34fe180e70d6582b5332ec094810
 
 FROM onnxruntime-${TARGETARCH} AS onnxruntime
 
-FROM golang:1.25-bookworm@sha256:3b4a11519ad929d1e1d261a12cff056f0c85b735253d7d861346b9c6f8b36437 AS builder
+FROM golang:1.26-bookworm@sha256:dc40a13b61304647ed7e5d581d246b86413dfc29d63c6d018310feb93cd98fc0 AS builder
 ARG VERSION=dev
 ARG COMMIT=unknown
 COPY --from=onnxruntime /onnxruntime.tgz /tmp/onnxruntime.tgz
@@ -45,6 +45,7 @@ RUN CGO_ENABLED=1 go build -trimpath \
 
 FROM debian:bookworm-slim@sha256:734a72b3d6142a71993b4bc580ca01d8ca687f77a2c422d96a961d3376b179bc
 RUN apt-get update \
+    && apt-get upgrade -y \
     && apt-get install -y --no-install-recommends curl libgomp1 \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=builder /out/autogravity /usr/local/bin/autogravity
