@@ -127,6 +127,36 @@ func TestDecodeAnimatedGIF(t *testing.T) {
 	}
 }
 
+func TestDecodeGIFPlacesOffsetFrameOnCanvas(t *testing.T) {
+	palette := color.Palette{color.Transparent, color.White}
+	frame := image.NewPaletted(image.Rect(2, 0, 4, 2), palette)
+	for i := range frame.Pix {
+		frame.Pix[i] = 1
+	}
+	var buf bytes.Buffer
+	if err := gif.EncodeAll(&buf, &gif.GIF{
+		Image:  []*image.Paletted{frame},
+		Delay:  []int{0},
+		Config: image.Config{ColorModel: palette, Width: 4, Height: 2},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	img, err := Decode(buf.Bytes())
+	if err != nil {
+		t.Fatalf("Decode() error = %v", err)
+	}
+	if got := img.Bounds(); got != image.Rect(0, 0, 4, 2) {
+		t.Fatalf("decoded bounds = %v, want the 4x2 logical screen", got)
+	}
+	if _, _, _, a := img.At(0, 0).RGBA(); a != 0 {
+		t.Fatalf("pixel outside the frame has alpha %d, want transparent", a)
+	}
+	if r, _, _, a := img.At(3, 1).RGBA(); r != 0xffff || a != 0xffff {
+		t.Fatalf("pixel inside the frame = (%d, alpha %d), want opaque white", r, a)
+	}
+}
+
 func TestDecodeAppliesEXIFOrientation(t *testing.T) {
 	source := image.NewRGBA(image.Rect(0, 0, 2, 1))
 	source.Set(0, 0, color.RGBA{R: 255, A: 255})
