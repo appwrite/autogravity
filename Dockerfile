@@ -10,7 +10,7 @@ ADD --checksum=sha256:7c63c73560ed76b1fac6cff8204ffe34fe180e70d6582b5332ec094810
 
 FROM onnxruntime-${TARGETARCH} AS onnxruntime
 
-FROM golang:1.26-bookworm@sha256:dc40a13b61304647ed7e5d581d246b86413dfc29d63c6d018310feb93cd98fc0 AS builder
+FROM golang:1.27-bookworm@sha256:ce59b41415e2524ae99926fe1f37ce48ba8c194dcbd2a56a65436cdcefa2bd34 AS builder
 ARG VERSION=dev
 ARG COMMIT=unknown
 COPY --from=onnxruntime /onnxruntime.tgz /tmp/onnxruntime.tgz
